@@ -1,0 +1,301 @@
+<!doctype html>
+<html>
+<head>
+  <meta charset="utf-8">
+  <title>Bookmark Cleaner Options</title>
+  <style>
+    /* Windows 11 2025 Typography Standards */
+    :root {
+      /* Windows 11 Type Ramp (effective pixels) */
+      --font-caption: 12px;
+      --font-body: 14px;
+      --font-body-large: 18px;
+      --font-subtitle: 20px;
+      --font-title: 28px;
+
+      /* Line Heights (Windows 11 Standards) */
+      --line-caption: 16px;
+      --line-body: 20px;
+      --line-body-large: 24px;
+      --line-subtitle: 28px;
+      --line-title: 36px;
+
+      /* Font Weights (Windows 11 Standards) */
+      --weight-regular: 400;
+      --weight-semibold: 600;
+
+      /* Spacing (8px grid system) */
+      --spacing-xs: 4px;
+      --spacing-sm: 8px;
+      --spacing-md: 12px;
+      --spacing-lg: 16px;
+      --spacing-xl: 20px;
+      --spacing-xxl: 24px;
+    }
+
+    * {
+      box-sizing: border-box;
+    }
+
+    body {
+      /* Windows 11 Primary Font: Segoe UI Variable */
+      font-family: 'Segoe UI Variable', 'Segoe UI', -apple-system, BlinkMacSystemFont, Roboto, 'Helvetica Neue', Arial, sans-serif;
+      font-size: var(--font-body);
+      line-height: var(--line-body);
+      font-weight: var(--weight-regular);
+      max-width: 60ch; /* Optimal 50-60 characters per line (Windows 11 standard) */
+      margin: 2.5rem auto;
+      padding: 1.25rem;
+      background: #f5f5f5;
+      color: #1a1a1a;
+    }
+
+    form {
+      background: white;
+      padding: var(--spacing-xl);
+      border-radius: 8px;
+      box-shadow: 0 2px 8px rgba(0,0,0,0.1);
+    }
+
+    h2 {
+      margin-top: 0;
+      margin-bottom: var(--spacing-lg);
+      color: #1a1a1a;
+      font-size: var(--font-title); /* 28px - Windows 11 Title */
+      line-height: var(--line-title);
+      font-weight: var(--weight-semibold); /* Semibold for titles */
+    }
+
+    h3 {
+      color: #333;
+      font-size: var(--font-subtitle); /* 20px - Windows 11 Subtitle */
+      line-height: var(--line-subtitle);
+      font-weight: var(--weight-semibold); /* Semibold for titles */
+      margin-top: var(--spacing-xl);
+      margin-bottom: var(--spacing-md);
+    }
+
+    label {
+      display: block;
+      margin: var(--spacing-lg) 0;
+      color: #333;
+      font-weight: var(--weight-semibold);
+      font-size: var(--font-body);
+      line-height: var(--line-body);
+    }
+
+    input[type="text"],
+    input[type="password"],
+    select {
+      width: 100%;
+      padding: var(--spacing-sm) var(--spacing-md);
+      margin-top: var(--spacing-xs);
+      border: 1px solid #c7c7c7;
+      border-radius: 4px;
+      font-size: var(--font-body);
+      line-height: var(--line-body);
+      font-weight: var(--weight-regular);
+      transition: border-color 0.2s, outline 0.2s;
+    }
+
+    input[type="text"]:hover,
+    input[type="password"]:hover,
+    select:hover {
+      border-color: #8c8c8c;
+    }
+
+    input[type="text"]:focus-visible,
+    input[type="password"]:focus-visible,
+    select:focus-visible {
+      outline: 2px solid #0078d4;
+      outline-offset: 2px;
+      border-color: #0078d4;
+    }
+
+    input[type="checkbox"] {
+      margin-right: var(--spacing-sm);
+      width: 1.125rem;
+      height: 1.125rem;
+      cursor: pointer;
+    }
+
+    input[type="checkbox"]:focus-visible {
+      outline: 2px solid #0078d4;
+      outline-offset: 2px;
+    }
+
+    button {
+      background: #0078d4;
+      color: white;
+      border: none;
+      padding: var(--spacing-sm) var(--spacing-lg);
+      border-radius: 4px;
+      cursor: pointer;
+      margin-right: var(--spacing-md);
+      margin-top: var(--spacing-lg);
+      font-size: var(--font-body);
+      font-weight: var(--weight-semibold); /* Semibold for button text */
+      line-height: var(--line-body);
+      transition: background-color 0.2s, outline 0.2s;
+    }
+
+    button:hover {
+      background: #005a9e;
+    }
+
+    button:active {
+      background: #004578;
+    }
+
+    button:focus-visible {
+      outline: 2px solid #0078d4;
+      outline-offset: 2px;
+    }
+
+    button#testConnection {
+      background: #8a2be2;
+    }
+
+    button#testConnection:hover {
+      background: #7119c4;
+    }
+
+    button#testConnection:active {
+      background: #5d0fa3;
+    }
+
+    button#runNow {
+      background: #107c10;
+    }
+
+    button#runNow:hover {
+      background: #0e6b0e;
+    }
+
+    button#runNow:active {
+      background: #0c5a0c;
+    }
+
+    #testResult {
+      font-size: var(--font-body);
+      line-height: var(--line-body);
+      font-weight: var(--weight-semibold);
+    }
+
+    #testResult.success {
+      background: #d4edda;
+      color: #155724;
+      border: 1px solid #c3e6cb;
+    }
+
+    #testResult.error {
+      background: #f8d7da;
+      color: #721c24;
+      border: 1px solid #f5c6cb;
+    }
+
+    .info {
+      background: #e6f4ff;
+      padding: var(--spacing-md);
+      border-left: 3px solid #0078d4;
+      margin-top: var(--spacing-lg);
+      border-radius: 4px;
+      font-size: var(--font-body);
+      line-height: var(--line-body);
+    }
+
+    .info strong {
+      font-weight: var(--weight-semibold);
+    }
+
+    /* Accessibility: Ensure minimum contrast ratio 4.5:1 */
+    span[style*="color:red"] {
+      color: #d13438 !important;
+    }
+
+    /* Responsive typography for mobile */
+    @media (max-width: 640px) {
+      body {
+        font-size: var(--font-body-large); /* 18px - Larger for mobile readability */
+        line-height: var(--line-body-large);
+        padding: 1rem;
+        margin: 1rem auto;
+      }
+
+      h2 {
+        font-size: var(--font-subtitle); /* 20px on mobile */
+        line-height: var(--line-subtitle);
+      }
+
+      h3 {
+        font-size: var(--font-body-large); /* 18px on mobile */
+        line-height: var(--line-body-large);
+      }
+    }
+  </style>
+</head>
+<body>
+  <form id="cfg">
+    <h2>Edge Bookmark Cleaner Settings</h2>
+
+    <h3>Azure OpenAI Configuration</h3>
+    <label>
+      API Key <span style="color:red">*</span>
+      <input type="password" name="key" required placeholder="Your Azure OpenAI API key">
+    </label>
+
+    <label>
+      Base URL <span style="color:red">*</span>
+      <input type="text" name="url" placeholder="https://YOUR-RESOURCE.openai.azure.com" required>
+    </label>
+
+    <label>
+      Chat Deployment <span style="color:red">*</span>
+      <input type="text" name="dep" required placeholder="gpt-4">
+    </label>
+
+    <label>
+      Embedding Deployment (optional)
+      <input type="text" name="edep" placeholder="text-embedding-3-small">
+    </label>
+
+    <h3>Behavior Settings</h3>
+    <label>
+      <input type="checkbox" name="scraping" checked>
+      Enable page scraping (fetches page content for better embeddings)
+    </label>
+
+    <label>
+      <input type="checkbox" name="deviceOnly">
+      Device-only mode (store vectors locally, recommended for large libraries)
+    </label>
+
+    <label>
+      <input type="checkbox" name="preview" checked>
+      Preview mode (review duplicates before deleting)
+    </label>
+
+    <label>
+      Schedule
+      <select name="schedule">
+        <option value="DAILY_3AM">Daily at 3:00 AM</option>
+        <option value="WEEKLY_SUN">Weekly on Sunday at 3:00 AM</option>
+        <option value="MANUAL">Manual only</option>
+      </select>
+    </label>
+
+    <button type="submit">Save Settings</button>
+    <button type="button" id="testConnection">Test Connection</button>
+    <button type="button" id="runNow">Run Now</button>
+
+    <div id="testResult" style="display: none; margin-top: var(--spacing-lg); padding: var(--spacing-md); border-radius: 4px;"></div>
+
+    <div class="info">
+      <strong>Note:</strong> Clicking "Run Now" will start the cleanup process immediately.
+      If preview mode is enabled, you can review duplicates in the extension popup.
+    </div>
+  </form>
+
+  <script type="module" src="options.js"></script>
+</body>
+</html>

@@ -1,0 +1,62 @@
+<!doctype html>
+<html lang="en">
+  <head>
+    <meta charset="utf-8">
+    <meta name="viewport" content="width=device-width,initial-scale=1">
+    <title>Bookmark Cleaner</title>
+    <style>
+      /* Windows 11 2025 Typography Standards - Base Styles */
+      :root {
+        /* Windows 11 Type Ramp (effective pixels) */
+        --font-caption: 12px;
+        --font-body: 14px;
+        --font-body-large: 18px;
+        --font-subtitle: 20px;
+        --font-title: 28px;
+        --font-title-large: 40px;
+
+        /* Line Heights */
+        --line-height-caption: 16px;
+        --line-height-body: 20px;
+        --line-height-body-large: 24px;
+        --line-height-subtitle: 28px;
+        --line-height-title: 36px;
+        --line-height-title-large: 52px;
+
+        /* Font Weights (Windows 11 Standards) */
+        --weight-regular: 400;
+        --weight-semibold: 600;
+
+        /* Spacing */
+        --spacing-xs: 4px;
+        --spacing-sm: 8px;
+        --spacing-md: 12px;
+        --spacing-lg: 16px;
+        --spacing-xl: 20px;
+      }
+
+      * {
+        box-sizing: border-box;
+      }
+
+      body {
+        margin: 0;
+        padding: 0;
+        width: 600px;
+        min-height: 400px;
+        /* Windows 11 Primary Font: Segoe UI Variable */
+        font-family: 'Segoe UI Variable', 'Segoe UI', -apple-system, BlinkMacSystemFont, Roboto, 'Helvetica Neue', Arial, sans-serif;
+        font-size: var(--font-body);
+        line-height: var(--line-height-body);
+        font-weight: var(--weight-regular);
+        color: #1a1a1a;
+        -webkit-font-smoothing: antialiased;
+        -moz-osx-font-smoothing: grayscale;
+      }
+    </style>
+  </head>
+  <body>
+    <div id="root"></div>
+    <script type="module" src="/src/main.tsx"></script>
+  </body>
+</html>
