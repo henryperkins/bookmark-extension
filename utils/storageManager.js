@@ -10,7 +10,7 @@ export class StorageManager {
   constructor(maxAgeMs = 30 * 24 * 60 * 60 * 1000) {
     this.maxAgeMs = maxAgeMs;
     // Keep payload under Chrome sync per-item quota (~8KB) with padding for metadata.
-    this.syncLimitBytes = 7000;
+    this.syncLimitBytes = 6000;
   }
 
   async _getBucket(localOnly) {
