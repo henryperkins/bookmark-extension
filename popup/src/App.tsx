@@ -414,7 +414,7 @@ function TreeView() {
     }
   };
 
-  const renderNode = (n: BookmarkNode): JSX.Element => (
+  const renderNode = (n: BookmarkNode) => (
     <li key={n.id} style={{
       marginBottom: styles.spacing.xs,
       lineHeight: styles.typography.lineBody

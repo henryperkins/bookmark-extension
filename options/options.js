@@ -73,6 +73,7 @@ async function loadSettings() {
     'baseUrl',
     'deployment',
     'embeddingDeployment',
+    'apiVersion',
     'enableScraping',
     'deviceOnly',
     'previewMode',
@@ -83,6 +84,7 @@ async function loadSettings() {
   form.url.value = data.baseUrl || '';
   form.dep.value = data.deployment || '';
   form.edep.value = data.embeddingDeployment || '';
+  form.apiVersion.value = data.apiVersion || 'v1';
   form.scraping.checked = data.enableScraping ?? true;
   form.deviceOnly.checked = data.deviceOnly ?? false;
   form.preview.checked = data.previewMode ?? true;
@@ -99,6 +101,7 @@ async function saveSettings(e) {
     baseUrl: form.url.value,
     deployment: form.dep.value,
     embeddingDeployment: form.edep.value || form.dep.value,
+    apiVersion: form.apiVersion.value || 'v1',
     enableScraping: form.scraping.checked,
     deviceOnly: form.deviceOnly.checked,
     previewMode: form.preview.checked,
@@ -138,6 +141,7 @@ async function testConnection() {
   const baseUrl = form.url.value;
   const deployment = form.dep.value;
   const embeddingDeployment = form.edep.value || deployment;
+  const apiVersion = form.apiVersion.value || 'v1';
 
   if (!apiKey || !baseUrl || !deployment) {
     setTestResult('Please fill in API Key, Base URL, and Chat Deployment first.', 'error');
@@ -151,7 +155,7 @@ async function testConnection() {
   chrome.runtime.sendMessage(
     {
       type: 'TEST_CONNECTION',
-      config: { apiKey, baseUrl, deployment, embeddingDeployment }
+      config: { apiKey, baseUrl, deployment, embeddingDeployment, apiVersion }
     },
     response => {
       testConnectionBtn.disabled = false;

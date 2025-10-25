@@ -1,5 +1,11 @@
 function sanitizeBaseUrl(baseUrl = "") {
-  return baseUrl.replace(/\/+$/, "");
+  if (!baseUrl) return "";
+  let out = baseUrl.trim();
+  // Remove trailing slashes
+  out = out.replace(/\/+$/, "");
+  // Strip an accidental trailing /openai or /openai/v1 that users sometimes paste
+  out = out.replace(/\/openai(?:\/v1)?$/i, "");
+  return out;
 }
 
 function buildUrl(root, path, version) {
@@ -21,7 +27,11 @@ async function parseJsonOrThrow(res, context) {
   } catch {
     detail = await res.text();
   }
-  throw new Error(`${context} ${res.status}${detail ? `: ${detail}` : ""}`);
+  let guidance = "";
+  if (res.status === 401) {
+    guidance = " (401 Unauthorized. Verify: 1) API Key is from this Azure OpenAI resource, 2) Base URL looks like https://<resource>.openai.azure.com (no trailing /openai/v1), 3) apiVersion matches your resource: use v1 only if unified endpoint enabled; otherwise e.g. 2024-07-01-preview, 4) Deployment names are correct.)";
+  }
+  throw new Error(`${context} ${res.status}${detail ? `: ${detail}` : ""}${guidance}`);
 }
 
 export function createOpenAI({
@@ -34,12 +44,22 @@ export function createOpenAI({
   if (!apiKey) throw new Error("Azure OpenAI apiKey is required");
   if (!baseUrl) throw new Error("Azure OpenAI baseUrl is required");
   if (!deployment) throw new Error("Azure OpenAI deployment is required");
-
-  // Per v1preview.json: {endpoint}/openai/v1
-  const root = `${sanitizeBaseUrl(baseUrl)}/openai/v1`;
-  const chatUrl = buildUrl(root, "/chat/completions", apiVersion);
+  const cleaned = sanitizeBaseUrl(baseUrl);
   const embedModel = embeddingDeployment || deployment;
-  const embeddingsUrl = buildUrl(root, "/embeddings", apiVersion);
+
+  // Unified ("v1") vs legacy (preview date string) Azure endpoint selection.
+  // Unified:   {endpoint}/openai/v1/chat/completions  body: { model: <deployment>, ... }
+  // Legacy:    {endpoint}/openai/deployments/<dep>/chat/completions?api-version=YYYY-MM-DD-preview
+  const isUnified = /^v1(-|$)/i.test(apiVersion);
+
+  // Build URLs
+  const rootUnified = `${cleaned}/openai/v1`;
+  const chatUrl = isUnified
+    ? buildUrl(rootUnified, "/chat/completions", apiVersion)
+    : `${cleaned}/openai/deployments/${encodeURIComponent(deployment)}/chat/completions?api-version=${encodeURIComponent(apiVersion)}`;
+  const embeddingsUrl = isUnified
+    ? buildUrl(rootUnified, "/embeddings", apiVersion)
+    : `${cleaned}/openai/deployments/${encodeURIComponent(embedModel)}/embeddings?api-version=${encodeURIComponent(apiVersion)}`;
 
   const headers = {
     "Content-Type": "application/json",
@@ -47,11 +67,16 @@ export function createOpenAI({
   };
 
   async function chat(messages, opts = {}) {
-    const body = {
-      model: deployment,
-      messages,
-      temperature: opts.temperature ?? 0
-    };
+    const body = isUnified
+      ? {
+          model: deployment,
+          messages,
+          temperature: opts.temperature ?? 0
+        }
+      : {
+          messages,
+          temperature: opts.temperature ?? 0
+        };
 
     if (opts.max_tokens != null) body.max_tokens = opts.max_tokens;
     if (opts.top_p != null) body.top_p = opts.top_p;
@@ -73,10 +98,9 @@ export function createOpenAI({
       throw new Error("Azure OpenAI embedding deployment is not configured");
     }
 
-    const body = {
-      model: embedModel,
-      input
-    };
+    const body = isUnified
+      ? { model: embedModel, input }
+      : { input };
 
     if (opts.encoding_format) body.encoding_format = opts.encoding_format;
     if (opts.dimensions != null) body.dimensions = opts.dimensions;

@@ -119,7 +119,7 @@ async function runCleanup() {
   const task = (async () => {
     const cfg = await chrome.storage.sync.get([
       "apiKey", "baseUrl", "deployment", "embeddingDeployment",
-      "enableScraping", "deviceOnly", "previewMode"
+      "apiVersion", "enableScraping", "deviceOnly", "previewMode"
     ]);
 
     if (!cfg.apiKey) {
