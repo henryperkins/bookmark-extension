@@ -298,7 +298,8 @@ chrome.runtime.onMessage.addListener((msg, _sender, reply) => {
         case "TEST_CONNECTION": {
           try {
             const client = createOpenAI(msg.config);
-            await client.chat([{ role: 'user', content: 'ping' }], { max_tokens: 1 });
+            // Use max_completion_tokens for newer unified models; client will fallback automatically if unsupported.
+            await client.chat([{ role: 'user', content: 'ping' }], { max_completion_tokens: 5 });
             safeReply({ success: true });
           } catch (error) {
             safeReply({ success: false, error: error?.message || String(error) });

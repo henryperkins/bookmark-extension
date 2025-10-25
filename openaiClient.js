@@ -67,30 +67,48 @@ export function createOpenAI({
   };
 
   async function chat(messages, opts = {}) {
-    const body = isUnified
-      ? {
-          model: deployment,
-          messages,
-          temperature: opts.temperature ?? 0
-        }
-      : {
-          messages,
-          temperature: opts.temperature ?? 0
-        };
+    const buildBody = (forceMaxCompletion = false) => {
+      const base = isUnified
+        ? { model: deployment, messages, temperature: opts.temperature ?? 0 }
+        : { messages, temperature: opts.temperature ?? 0 };
 
-    if (opts.max_tokens != null) body.max_tokens = opts.max_tokens;
-    if (opts.top_p != null) body.top_p = opts.top_p;
-    if (opts.response_format) body.response_format = opts.response_format;
-    if (opts.tools) body.tools = opts.tools;
-    if (opts.stream_options) body.stream_options = opts.stream_options;
+      // Token limits priority / translation
+      if (forceMaxCompletion && opts.max_tokens != null) {
+        base.max_completion_tokens = opts.max_tokens;
+      } else if (opts.max_completion_tokens != null) {
+        base.max_completion_tokens = opts.max_completion_tokens;
+      } else if (opts.max_tokens != null) {
+        base.max_tokens = opts.max_tokens;
+      } else if (opts.max_output_tokens != null) {
+        base.max_output_tokens = opts.max_output_tokens; // reasoning models variant
+      }
 
-    const res = await fetch(chatUrl, {
-      method: "POST",
-      headers,
-      body: JSON.stringify(body)
-    });
+      if (opts.top_p != null) base.top_p = opts.top_p;
+      if (opts.response_format) base.response_format = opts.response_format;
+      if (opts.tools) base.tools = opts.tools;
+      if (opts.stream_options) base.stream_options = opts.stream_options;
+      return base;
+    };
 
-    return parseJsonOrThrow(res, "Chat error");
+    const attempt = async (forceMaxCompletion = false) => {
+      const body = buildBody(forceMaxCompletion);
+      const res = await fetch(chatUrl, {
+        method: "POST",
+        headers,
+        body: JSON.stringify(body)
+      });
+      return parseJsonOrThrow(res, "Chat error");
+    };
+
+    try {
+      return await attempt(false);
+    } catch (e) {
+      if (opts.max_tokens != null && !opts.max_completion_tokens && /Unsupported parameter: 'max_tokens'/i.test(e.message)) {
+        // Retry once translating to max_completion_tokens per new API guidance.
+        return await attempt(true);
+      }
+      throw e;
+    }
   }
 
   async function embed(input, opts = {}) {
