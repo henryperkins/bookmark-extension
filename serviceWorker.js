@@ -145,7 +145,7 @@ async function runCleanup() {
 
       // Dedupe
       const { keep, dupes } = await dedupeNodes(leaves, openai, {
-        threshold: 0.9,
+        threshold: 0.85,
         localOnly: cfg.deviceOnly,
         notifier,
         total,

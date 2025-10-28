@@ -1,0 +1,32 @@
+{
+  "mcpServers": {
+    "context7": {
+      "type": "streamable-http",
+      "url": "https://mcp.context7.com/mcp",
+      "headers": {
+        "CONTEXT7_API_KEY": "ctx7sk-0c443daa-afb7-402e-a4f6-96f5e2806fa1"
+      },
+      "alwaysAllow": [
+        "get-library-docs"
+      ]
+    },
+    "tavily": {
+      "command": "npx",
+      "args": [
+        "-y",
+        "tavily-mcp@latest"
+      ],
+      "env": {
+        "TAVILY_API_KEY": "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"
+      },
+      "alwaysAllow": [
+        "tavily_search",
+        "tavily_extract",
+        "tavily-extract",
+        "tavily-crawl",
+        "tavily-search",
+        "tavily-map"
+      ]
+    }
+  }
+}

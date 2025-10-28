@@ -57,3 +57,25 @@ export function isLocalNetworkUrl(raw) {
     return true;
   }
 }
+
+export function isBrowserInternalUrl(raw) {
+  if (!raw) return true;
+  const value = String(raw).trim();
+  if (!value) return true;
+  if (/^(?:chrome|edge|about|chrome-extension|moz-extension):/i.test(value)) {
+    return true;
+  }
+  try {
+    const url = new URL(value);
+    const protocol = url.protocol.toLowerCase();
+    return (
+      protocol === "chrome:" ||
+      protocol === "edge:" ||
+      protocol === "about:" ||
+      protocol === "chrome-extension:" ||
+      protocol === "moz-extension:"
+    );
+  } catch {
+    return true;
+  }
+}

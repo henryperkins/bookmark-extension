@@ -1,54 +1,233 @@
 import { addBookmark } from "./bookmarksCrud.js";
+import { normalizeUrlForKey, isBrowserInternalUrl } from "./utils/url.js";
 
-function fallbackParseAnchors(html) {
-  const anchors = [];
+/**
+ * Decode HTML entities in text content
+ */
+function decodeHtmlEntities(value) {
+  if (!value) return "";
   const entityMap = { amp: '&', lt: '<', gt: '>', quot: '"', apos: "'" };
-  const decode = (value) =>
-    value.replace(/&(#x?[0-9a-fA-F]+|[a-zA-Z]+);/g, (_, ent) => {
-      if (ent in entityMap) return entityMap[ent];
-      if (ent.startsWith('#x')) return String.fromCharCode(parseInt(ent.slice(2), 16));
-      if (ent.startsWith('#')) return String.fromCharCode(parseInt(ent.slice(1), 10));
-      return _;
-    });
-
-  const re = /<a\b([^>]*?)>(.*?)<\/a>/gis;
-  let match;
-  while ((match = re.exec(html))) {
-    const attrs = match[1] || '';
-    const inner = match[2] || '';
-    const hrefMatch = attrs.match(/\bhref\s*=\s*("(.*?)"|'(.*?)'|([^>\s]+))/i);
-    const rawHref = hrefMatch ? (hrefMatch[2] || hrefMatch[3] || hrefMatch[4] || '').trim() : '';
-    if (!rawHref) continue;
-    const text = decode(inner.replace(/<[^>]*>/g, '')).trim() || rawHref;
-    anchors.push({ href: rawHref, text });
-  }
-  return anchors;
+  return value.replace(/&(#x?[0-9a-fA-F]+|[a-zA-Z]+);/g, (_, ent) => {
+    if (ent in entityMap) return entityMap[ent];
+    if (ent.startsWith('#x')) return String.fromCharCode(parseInt(ent.slice(2), 16));
+    if (ent.startsWith('#')) return String.fromCharCode(parseInt(ent.slice(1), 10));
+    return `&${ent};`;
+  });
 }
 
-export async function importHtml(text, parentId) {
-  let anchors = [];
+/**
+ * Parse bookmark HTML using DOMParser (modern browsers)
+ */
+function parseDomBookmarks(html) {
+  const parser = new DOMParser();
+  const doc = parser.parseFromString(html, 'text/html');
 
-  if (typeof DOMParser !== 'undefined') {
-    try {
-      const doc = new DOMParser().parseFromString(text, 'text/html');
-      anchors = [...doc.querySelectorAll('a[href]')].map(a => ({
-        href: a.getAttribute('href'),
-        text: (a.textContent || '').trim() || a.getAttribute('href') || ''
-      }));
-    } catch {
-      anchors = fallbackParseAnchors(text);
+  function processContainer(container) {
+    const items = [];
+    const children = Array.from(container.children);
+    let skipNext = false;
+
+    for (let i = 0; i < children.length; i++) {
+      const child = children[i];
+
+      // Skip if flagged from previous iteration
+      if (skipNext) {
+        skipNext = false;
+        continue;
+      }
+
+      // Skip paragraph tags
+      if (child.tagName === 'P') continue;
+
+      if (child.tagName === 'DT') {
+        // Check if this DT contains a folder (H3 element)
+        const h3 = child.querySelector(':scope > H3');
+        if (h3) {
+          const title = decodeHtmlEntities(h3.textContent || '').trim();
+          const folder = { type: 'folder', title, children: [] };
+
+          // Look for the next sibling that is a DL (contains folder children)
+          let nextSibling = children[i + 1];
+          let nextIdx = i + 1;
+
+          // Skip any <p> tags
+          while (nextSibling && nextSibling.tagName === 'P') {
+            nextIdx++;
+            nextSibling = children[nextIdx];
+          }
+
+          if (nextSibling && nextSibling.tagName === 'DL') {
+            folder.children = processContainer(nextSibling);
+            // Mark to skip the DL in next iteration
+            if (nextIdx === i + 1) {
+              skipNext = true;
+            }
+          }
+
+          items.push(folder);
+          continue;
+        }
+
+        // Check if this DT contains a bookmark (A element)
+        const anchor = child.querySelector(':scope > A');
+        if (anchor) {
+          // DOMParser automatically decodes HTML entities in attributes
+          const href = (anchor.getAttribute('HREF') || anchor.getAttribute('href') || '').trim();
+          const title = decodeHtmlEntities(anchor.textContent || '').trim();
+          items.push({ type: 'bookmark', url: href, title });
+        }
+      }
     }
-  } else {
-    anchors = fallbackParseAnchors(text);
+
+    return items;
   }
 
-  for (const anchor of anchors) {
-    if (!anchor.href) continue;
-    const title = anchor.text || anchor.href;
-    try {
-      await addBookmark({ parentId, title, url: anchor.href });
-    } catch (e) {
-      console.warn(`Failed to import bookmark ${anchor.href}:`, e);
+  // Find the main DL container
+  const mainDl = doc.querySelector('DL');
+  if (!mainDl) return [];
+
+  return processContainer(mainDl);
+}
+
+/**
+ * Fallback regex-based parser for environments without DOMParser
+ */
+function fallbackParseBookmarks(html) {
+  const items = [];
+  const stack = [{ children: items }];
+
+  // Regex patterns for Netscape bookmark format
+  const patterns = [
+    { type: 'folder-start', re: /<DT>\s*<H3[^>]*>(.*?)<\/H3>/gi },
+    { type: 'bookmark', re: /<DT>\s*<A\s+([^>]*?)>(.*?)<\/A>/gi },
+    { type: 'dl-open', re: /<DL[^>]*>/gi },
+    { type: 'dl-close', re: /<\/DL>/gi }
+  ];
+
+  // Find all tokens with their positions
+  const tokens = [];
+  for (const { type, re } of patterns) {
+    let match;
+    while ((match = re.exec(html)) !== null) {
+      tokens.push({
+        type,
+        pos: match.index,
+        data: match
+      });
     }
   }
+
+  // Sort tokens by position
+  tokens.sort((a, b) => a.pos - b.pos);
+
+  // Build tree structure
+  let currentContainer = stack[0];
+  let pendingFolder = null;
+
+  for (const token of tokens) {
+    if (token.type === 'folder-start') {
+      const title = decodeHtmlEntities(token.data[1]).trim();
+      pendingFolder = { type: 'folder', title, children: [] };
+      currentContainer.children.push(pendingFolder);
+    } else if (token.type === 'dl-open' && pendingFolder) {
+      // DL open after folder means the folder has children
+      stack.push(pendingFolder);
+      currentContainer = pendingFolder;
+      pendingFolder = null;
+    } else if (token.type === 'bookmark') {
+      const attrs = token.data[1];
+      const text = token.data[2];
+      const hrefMatch = attrs.match(/\bHREF\s*=\s*["']([^"']+)["']/i);
+      const url = hrefMatch ? decodeHtmlEntities(hrefMatch[1]) : '';
+      const title = decodeHtmlEntities(text.replace(/<[^>]*>/g, '')).trim();
+      currentContainer.children.push({ type: 'bookmark', url, title });
+    } else if (token.type === 'dl-close') {
+      // Close current folder and go back to parent
+      if (stack.length > 1) {
+        stack.pop();
+        currentContainer = stack[stack.length - 1];
+      }
+      pendingFolder = null;
+    }
+  }
+
+  return items;
+}
+
+/**
+ * Import bookmarks from Netscape HTML format
+ * @param {string} html - HTML content to parse
+ * @param {string} parentId - Chrome bookmark folder ID where items will be imported
+ */
+export async function importHtml(html, parentId) {
+  if (!html || typeof html !== 'string') return;
+
+  // Parse the HTML into a tree structure
+  let tree;
+  try {
+    if (typeof DOMParser !== 'undefined') {
+      tree = parseDomBookmarks(html);
+    } else {
+      tree = fallbackParseBookmarks(html);
+    }
+  } catch (error) {
+    console.warn('DOM parsing failed, falling back to regex parser:', error);
+    tree = fallbackParseBookmarks(html);
+  }
+
+  // Track seen normalized URLs to prevent duplicates within the same import session
+  const seenUrls = new Set();
+
+  /**
+   * Recursively create bookmarks and folders
+   */
+  async function createNodes(items, currentParentId) {
+    for (const item of items) {
+      try {
+        if (item.type === 'folder') {
+          // Create folder
+          const folder = await addBookmark({
+            parentId: currentParentId,
+            title: item.title || 'Untitled Folder'
+          });
+
+          // Recursively create children
+          if (item.children && item.children.length > 0) {
+            await createNodes(item.children, folder.id);
+          }
+        } else if (item.type === 'bookmark') {
+          const url = (item.url || '').trim();
+
+          // Skip empty URLs
+          if (!url) continue;
+
+          // Skip browser-internal URLs (chrome://, edge://, about:, etc.)
+          if (isBrowserInternalUrl(url)) {
+            continue;
+          }
+
+          // Skip duplicates within this import session based on normalized URL
+          const normalized = normalizeUrlForKey(url);
+          if (normalized && seenUrls.has(normalized)) {
+            continue;
+          }
+          if (normalized) {
+            seenUrls.add(normalized);
+          }
+
+          // Create bookmark
+          await addBookmark({
+            parentId: currentParentId,
+            title: item.title || url,
+            url: url
+          });
+        }
+      } catch (error) {
+        console.warn('Failed to import item:', item, error);
+        // Continue with next item even if this one fails
+      }
+    }
+  }
+
+  await createNodes(tree, parentId);
 }
