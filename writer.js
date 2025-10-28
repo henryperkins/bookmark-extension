@@ -1,3 +1,5 @@
+import { deleteBookmark as deleteNode } from './bookmarksCrud.js';
+
 const TAG_SUFFIX_PATTERN = /\s--\s(?:#[^\s#]+)(?:\s#[^\s#]+)*$/;
 
 export async function writeTags(taggedKeep, dupes = []) {
@@ -16,7 +18,7 @@ export async function writeTags(taggedKeep, dupes = []) {
   for (const d of dupes) {
     if (!d?.url) continue;
     try {
-      await chrome.bookmarks.removeTree(d.id);
+      await deleteNode(d.id);
     } catch (e) {
       console.warn(`Failed to remove duplicate ${d.id}:`, e);
     }

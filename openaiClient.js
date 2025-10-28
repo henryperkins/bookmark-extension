@@ -67,36 +67,37 @@ export function createOpenAI({
   };
 
   async function chat(messages, opts = {}) {
-    const buildBody = (forceMaxCompletion = false) => {
+    const buildBody = (options, forceMaxCompletion = false) => {
+      const params = options || {};
       const base = isUnified
         ? { model: deployment, messages }
         : { messages };
 
       // Only include temperature if explicitly set to 1 (some models only support temperature: 1 or omitting it)
-      if (opts.temperature != null && opts.temperature === 1) {
+      if (params.temperature != null && params.temperature === 1) {
         base.temperature = 1;
       }
 
       // Token limits priority / translation
-      if (forceMaxCompletion && opts.max_tokens != null) {
-        base.max_completion_tokens = opts.max_tokens;
-      } else if (opts.max_completion_tokens != null) {
-        base.max_completion_tokens = opts.max_completion_tokens;
-      } else if (opts.max_tokens != null) {
-        base.max_tokens = opts.max_tokens;
-      } else if (opts.max_output_tokens != null) {
-        base.max_output_tokens = opts.max_output_tokens; // reasoning models variant
+      if (forceMaxCompletion && params.max_tokens != null) {
+        base.max_completion_tokens = params.max_tokens;
+      } else if (params.max_completion_tokens != null) {
+        base.max_completion_tokens = params.max_completion_tokens;
+      } else if (params.max_tokens != null) {
+        base.max_tokens = params.max_tokens;
+      } else if (params.max_output_tokens != null) {
+        base.max_output_tokens = params.max_output_tokens; // reasoning models variant
       }
 
-      if (opts.top_p != null) base.top_p = opts.top_p;
-      if (opts.response_format) base.response_format = opts.response_format;
-      if (opts.tools) base.tools = opts.tools;
-      if (opts.stream_options) base.stream_options = opts.stream_options;
+      if (params.top_p != null) base.top_p = params.top_p;
+      if (params.response_format) base.response_format = params.response_format;
+      if (params.tools) base.tools = params.tools;
+      if (params.stream_options) base.stream_options = params.stream_options;
       return base;
     };
 
-    const attempt = async (forceMaxCompletion = false) => {
-      const body = buildBody(forceMaxCompletion);
+    const attempt = async (options = opts, forceMaxCompletion = false) => {
+      const body = buildBody(options, forceMaxCompletion);
       const res = await fetch(chatUrl, {
         method: "POST",
         headers,
@@ -106,11 +107,16 @@ export function createOpenAI({
     };
 
     try {
-      return await attempt(false);
+      return await attempt(opts, false);
     } catch (e) {
-      if (opts.max_tokens != null && !opts.max_completion_tokens && /Unsupported parameter: 'max_tokens'/i.test(e.message)) {
+      const message = String(e?.message || "");
+      if (opts.max_tokens != null && !opts.max_completion_tokens && /Unsupported parameter:\s*'max_tokens'/i.test(message)) {
         // Retry once translating to max_completion_tokens per new API guidance.
-        return await attempt(true);
+        return await attempt(opts, true);
+      }
+      if (opts.max_completion_tokens != null && /Unsupported parameter:\s*'max_completion_tokens'/i.test(message)) {
+        const { max_completion_tokens, ...rest } = opts;
+        return await attempt({ ...rest, max_tokens: max_completion_tokens }, false);
       }
       throw e;
     }

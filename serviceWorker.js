@@ -182,7 +182,13 @@ async function runCleanup() {
       // Get all bookmarks
       const roots = await chrome.bookmarks.getTree();
       const leaves = [];
-      const walk = (n) => n.children ? n.children.forEach(walk) : leaves.push(n);
+      const walk = (n) => {
+        if (n.children && n.children.length) {
+          n.children.forEach(walk);
+        } else if (n.url) {
+          leaves.push(n);
+        }
+      };
       roots.forEach(walk);
       const total = leaves.length;
 

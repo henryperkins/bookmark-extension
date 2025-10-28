@@ -224,9 +224,8 @@ export class JobStore {
    */
   async getStorageStats() {
     try {
-      const usage = await chrome.storage.local.getBytesInUse();
-      const quota = await chrome.storage.local.getQuota();
-      
+      const usedBytes = await chrome.storage.local.getBytesInUse();
+
       // Get individual component sizes
       const result = await chrome.storage.local.get([
         this.KEYS.SNAPSHOT,
@@ -234,15 +233,15 @@ export class JobStore {
         this.KEYS.QUEUE,
         this.KEYS.HISTORY
       ]);
-      
+
       const snapshotSize = this.calculateSize(result[this.KEYS.SNAPSHOT]);
       const activitySize = this.calculateSize(result[this.KEYS.ACTIVITY]);
       const queueSize = this.calculateSize(result[this.KEYS.QUEUE]);
       const historySize = this.calculateSize(result[this.KEYS.HISTORY]);
-      
+
       return {
-        usedBytes: usage,
-        availableBytes: quota - usage,
+        usedBytes,
+        availableBytes: null,
         snapshotSize,
         activitySize,
         queueSize,
@@ -252,7 +251,7 @@ export class JobStore {
       console.error('Failed to get storage stats:', error);
       return {
         usedBytes: 0,
-        availableBytes: 0,
+        availableBytes: null,
         snapshotSize: 0,
         activitySize: 0,
         queueSize: 0,
@@ -458,19 +457,10 @@ export class JobStore {
   async checkQuotaWarning() {
     try {
       const usage = await chrome.storage.local.getBytesInUse();
-      const quota = await chrome.storage.local.getQuota();
-      const warningThreshold = 0.8; // 80% of quota
-
-      const warning = usage > (quota * warningThreshold);
-      
-      return {
-        warning,
-        usage,
-        quota
-      };
+      return { warning: false, usage, quota: null };
     } catch (error) {
       console.error('Failed to check quota:', error);
-      return { warning: false, usage: 0, quota: 0 };
+      return { warning: false, usage: 0, quota: null };
     }
   }
 
@@ -487,7 +477,7 @@ export class JobStore {
 
       // Check for legacy data
       const legacyKeys = ['dedupeJob', 'cleanupJob', 'jobState'];
-      const legacyData: any = {};
+      const legacyData = {};
       
       for (const key of legacyKeys) {
         const result = await chrome.storage.local.get(key);
