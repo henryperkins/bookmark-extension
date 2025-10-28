@@ -69,8 +69,13 @@ export function createOpenAI({
   async function chat(messages, opts = {}) {
     const buildBody = (forceMaxCompletion = false) => {
       const base = isUnified
-        ? { model: deployment, messages, temperature: opts.temperature ?? 0 }
-        : { messages, temperature: opts.temperature ?? 0 };
+        ? { model: deployment, messages }
+        : { messages };
+
+      // Only include temperature if explicitly set to 1 (some models only support temperature: 1 or omitting it)
+      if (opts.temperature != null && opts.temperature === 1) {
+        base.temperature = 1;
+      }
 
       // Token limits priority / translation
       if (forceMaxCompletion && opts.max_tokens != null) {

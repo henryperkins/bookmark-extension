@@ -133,6 +133,49 @@ async function runCleanup() {
     const limiter = createRateLimiter(8);
     const ignorePairs = await loadIgnorePairs(true);
 
+    // Progress snapshot helpers (stage weights and aggregator)
+    const STAGE_ORDER = ['initializing','scanning','grouping','resolving','verifying','summarizing'];
+    const STAGE_WEIGHTS = { initializing: 0.05, scanning: 0.30, grouping: 0.10, resolving: 0.50, verifying: 0.05, summarizing: 0.05 };
+    const stageIndexMap = Object.fromEntries(STAGE_ORDER.map((s, i) => [s, i]));
+
+    function computeWeightedPercent(stage, stagePercent) {
+      let sum = 0;
+      for (const s of STAGE_ORDER) {
+        if (s === stage) {
+          sum += (STAGE_WEIGHTS[s] || 0) * Math.max(0, Math.min(1, stagePercent || 0));
+          break;
+        } else {
+          sum += STAGE_WEIGHTS[s] || 0;
+        }
+      }
+      return Math.max(0, Math.min(1, sum));
+    }
+
+    async function setSnapshot(stage, processedUnits, totalUnits, activity, { status = 'running', indeterminate = false } = {}) {
+      const total = Number.isFinite(totalUnits) ? totalUnits : 0;
+      const processed = Number.isFinite(processedUnits) ? processedUnits : 0;
+      const stagePercent = total ? Math.max(0, Math.min(1, processed / Math.max(1, total))) : 0;
+      const weightedPercent = computeWeightedPercent(stage, stagePercent);
+      const snapshot = {
+        jobId: notifier.id || 'bookmark-progress',
+        status,
+        stage,
+        stageIndex: stageIndexMap[stage] ?? 0,
+        totalUnits: total,
+        processedUnits: processed,
+        stagePercent,
+        weightedPercent,
+        indeterminate: Boolean(indeterminate),
+        activity,
+        timestamp: new Date().toISOString()
+      };
+      try {
+        await chrome.storage.local.set({ dedupeJob: snapshot });
+      } catch {
+        // ignore storage failures
+      }
+    }
+
     try {
       await notifier.ensureProgress('Starting cleanup...');
 
@@ -142,6 +185,11 @@ async function runCleanup() {
       const walk = (n) => n.children ? n.children.forEach(walk) : leaves.push(n);
       roots.forEach(walk);
       const total = leaves.length;
+
+      // Seed popup with initial scanning stage
+      try {
+        await setSnapshot('scanning', 0, total, `Processing 0/${total}`, { indeterminate: !total });
+      } catch {}
 
       // Dedupe
       const { keep, dupes } = await dedupeNodes(leaves, openai, {
@@ -155,16 +203,29 @@ async function runCleanup() {
         ignorePairs
       });
 
-      // Tag
-      let tagged = await tagNodes(keep, openai);
+      // Stage: grouping (complete)
+      await setSnapshot('grouping', 1, 1, `Found ${dupes.length} duplicate(s)`, { indeterminate: false });
+// Tag
+const resolveTotal = (keep.length || 0) * 2 || 1;
+let resolveProcessed = 0;
+let tagged = await tagNodes(keep, openai, {
+  onProgress: (i, totalI) => {
+    resolveProcessed = Math.min(resolveTotal, i);
+    try { setSnapshot('resolving', resolveProcessed, resolveTotal, `Tagging ${i}/${totalI}`, { indeterminate: false }); } catch {}
+  }
+});
+
 
       // Suggest folders
-      for (const item of tagged) {
+      for (let i = 0; i < tagged.length; i++) {
+        const item = tagged[i];
         try {
           item.suggestedFolder = await suggestFolders(item, openai);
         } catch (e) {
           console.warn(`Folder suggestion failed for ${item.id}:`, e);
         }
+        resolveProcessed = (keep.length || 0) + (i + 1);
+        await setSnapshot('resolving', resolveProcessed, resolveTotal, `Suggesting folders ${i + 1}/${tagged.length}`, { indeterminate: false });
       }
 
       if (cfg.previewMode) {
@@ -178,22 +239,28 @@ async function runCleanup() {
           duplicateOf: d.duplicateOf
         }));
         await saveQueue();
+        await setSnapshot('summarizing', 1, 1, 'Creating summary…', { indeterminate: false });
         await notifier.showComplete({ total, duplicates: dupes.length });
       } else {
         // Auto-apply changes
+        await setSnapshot('resolving', resolveTotal - 1, resolveTotal, 'Applying changes…', { indeterminate: false });
         await writeTags(tagged, dupes);
+        await setSnapshot('resolving', resolveTotal, resolveTotal, 'Applied changes', { indeterminate: false });
+        await setSnapshot('summarizing', 1, 1, 'Creating summary…', { indeterminate: false });
         await notifier.showComplete({ total, duplicates: dupes.length });
       }
 
       // Sync conflicts check
       const syncMgr = new SyncManager();
+      await setSnapshot('verifying', 0, 1, 'Verifying integrity…', { indeterminate: true });
       const conflicts = await syncMgr.resolveConflicts(leaves, []);
+      await setSnapshot('verifying', 1, 1, conflicts.length ? `${conflicts.length} sync conflicts` : 'Verification complete', { indeterminate: false });
       if (conflicts.length) {
         await notifier.ensureProgress(`${conflicts.length} sync conflicts`);
       }
     } catch (e) {
       console.error('Cleanup failed:', e);
-      await notifier.ensureProgress(`Error: ${e?.message || e}`);
+      await notifier.showError(e?.message || e);
     }
   })();
 
@@ -303,6 +370,16 @@ chrome.runtime.onMessage.addListener((msg, _sender, reply) => {
             safeReply({ success: true });
           } catch (error) {
             safeReply({ success: false, error: error?.message || String(error) });
+          }
+          return;
+        }
+
+        case "GET_JOB_STATUS": {
+          try {
+            const { dedupeJob } = await chrome.storage.local.get('dedupeJob');
+            safeReply(dedupeJob || null);
+          } catch (_e) {
+            safeReply(null);
           }
           return;
         }

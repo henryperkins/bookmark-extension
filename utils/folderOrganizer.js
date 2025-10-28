@@ -22,7 +22,7 @@ Respond with just the folder name.`;
     const res = await openai.chat([
       { role: 'system', content: 'You are a bookmark organizer.' },
       { role: 'user', content: prompt }
-    ], { temperature: 0.0 });
+    ]);
     return res.choices?.[0]?.message?.content?.trim() || '';
   } catch (e) {
     console.warn('Folder suggestion failed:', e);
