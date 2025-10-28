@@ -59,6 +59,14 @@ export class JobRunner {
       const resumeStageIndex = typeof existingSnapshot.stageIndex === 'number' ? existingSnapshot.stageIndex : Math.max(stages.indexOf(existingSnapshot.stage), 0);
       const resumeStage = stages[resumeStageIndex] || initialStage;
 
+      const mergedMeta = {
+        ...(existingSnapshot.queueMeta || {}),
+        ...(queueMeta || {})
+      };
+      mergedMeta.requestedBy = queueMeta?.requestedBy || existingSnapshot.queueMeta?.requestedBy || 'manual';
+      mergedMeta.requestedAt = now;
+      mergedMeta.schedule = queueMeta?.schedule ?? existingSnapshot.queueMeta?.schedule ?? null;
+
       this.currentJob = {
         ...existingSnapshot,
         status: 'queued',
@@ -67,10 +75,7 @@ export class JobRunner {
         timestamp: now,
         activity: 'Job resumed',
         queueMeta: {
-          ...existingSnapshot.queueMeta,
-          requestedBy: queueMeta.requestedBy || existingSnapshot.queueMeta?.requestedBy || 'manual',
-          requestedAt: now,
-          schedule: queueMeta.schedule ?? existingSnapshot.queueMeta?.schedule ?? null
+          ...mergedMeta
         }
       };
 
@@ -82,6 +87,13 @@ export class JobRunner {
       }
     } else {
       const jobId = this.generateJobId();
+      const mergedMeta = {
+        ...(queueMeta || {})
+      };
+      mergedMeta.requestedBy = queueMeta?.requestedBy || 'manual';
+      mergedMeta.requestedAt = now;
+      mergedMeta.schedule = queueMeta?.schedule ?? null;
+
       this.currentJob = {
         jobId,
         status: 'queued',
@@ -96,11 +108,7 @@ export class JobRunner {
         startedAt: null,
         completedAt: null,
         summary: createEmptyJobSummary(),
-        queueMeta: {
-          requestedBy: queueMeta.requestedBy || 'manual',
-          requestedAt: now,
-          schedule: queueMeta.schedule ?? null
-        }
+        queueMeta: mergedMeta
       };
     }
 

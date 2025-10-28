@@ -275,18 +275,29 @@ function AddForm() {
       return;
     }
 
-    chrome.runtime.sendMessage(
-      { type: "CREATE_BOOKMARK", payload: { title, url, parentId } },
-      (result) => {
-        if (result?.id) {
-          alert('Bookmark added!');
-          setTitle('');
-          setUrl('');
-        } else {
-          alert('Failed to add bookmark');
-        }
+    chrome.runtime.sendMessage({ type: "CHECK_DUPLICATE_URL", url }, (dup) => {
+      const lastError = chrome.runtime.lastError;
+      if (lastError) {
+        console.warn('Duplicate lookup failed:', lastError.message);
       }
-    );
+      if (dup?.exists) {
+        const proceed = window.confirm('This URL already exists in your bookmarks. Add anyway?');
+        if (!proceed) return;
+      }
+
+      chrome.runtime.sendMessage(
+        { type: "CREATE_BOOKMARK", payload: { title, url, parentId } },
+        (result) => {
+          if (result?.id) {
+            alert('Bookmark added!');
+            setTitle('');
+            setUrl('');
+          } else {
+            alert('Failed to add bookmark');
+          }
+        }
+      );
+    });
   };
 
   return (

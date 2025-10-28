@@ -155,6 +155,30 @@ function fallbackParseBookmarks(html) {
 }
 
 /**
+ * Parse bookmark Netscape HTML into a nested tree without performing writes.
+ * @param {string} html
+ * @returns {Array<{type: 'folder'|'bookmark', title?: string, url?: string, children?: any[]}>}
+ */
+export function parseBookmarks(html) {
+  if (!html || typeof html !== "string") return [];
+
+  try {
+    if (typeof DOMParser !== "undefined") {
+      return parseDomBookmarks(html);
+    }
+    return fallbackParseBookmarks(html);
+  } catch (error) {
+    console.warn("parseBookmarks failed, falling back to regex parser:", error);
+    try {
+      return fallbackParseBookmarks(html);
+    } catch (fallbackError) {
+      console.warn("Fallback parser also failed:", fallbackError);
+      return [];
+    }
+  }
+}
+
+/**
  * Import bookmarks from Netscape HTML format
  * @param {string} html - HTML content to parse
  * @param {string} parentId - Chrome bookmark folder ID where items will be imported
@@ -163,17 +187,7 @@ export async function importHtml(html, parentId) {
   if (!html || typeof html !== 'string') return;
 
   // Parse the HTML into a tree structure
-  let tree;
-  try {
-    if (typeof DOMParser !== 'undefined') {
-      tree = parseDomBookmarks(html);
-    } else {
-      tree = fallbackParseBookmarks(html);
-    }
-  } catch (error) {
-    console.warn('DOM parsing failed, falling back to regex parser:', error);
-    tree = fallbackParseBookmarks(html);
-  }
+  const tree = parseBookmarks(html);
 
   // Track seen normalized URLs to prevent duplicates within the same import session
   const seenUrls = new Set();

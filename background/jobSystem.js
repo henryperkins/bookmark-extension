@@ -245,18 +245,24 @@ export function disposeJobSystem() {
  */
 export const JobSystemCommands = {
   /**
-   * Start a new cleanup job
+   * Start a new job
    */
-  async startJob(requestedBy = 'manual', schedule = null) {
+  async startJob(requestedBy = 'manual', options = {}) {
     const jobSystem = getJobSystem();
     if (!jobSystem) {
       return { success: false, error: 'Job system not initialized' };
     }
 
+    const schedule = options?.schedule ?? null;
+    const metadata = options?.metadata && typeof options.metadata === 'object'
+      ? options.metadata
+      : {};
+
     const result = await jobSystem.handleCommand('START_JOB', {
       queueMeta: {
         requestedBy,
-        schedule
+        schedule,
+        ...metadata
       }
     });
     if (result.success) {

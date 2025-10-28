@@ -11,6 +11,8 @@ import { NotificationManager } from "./utils/notificationManager.js";
 import { suggestFolders } from "./utils/folderOrganizer.js";
 import { SyncManager } from "./utils/syncManager.js";
 import { makePairKey, normalizeUrlForKey } from "./utils/url.js";
+import { initializeJobSystem, JobSystemCommands } from "./background/jobSystem.js";
+import { registerImportJobStages, wireUrlIndexListeners, rebuildUrlIndex, JOB_META_PREFIX, IMPORT_PAYLOAD_PREFIX, ENRICH_PAYLOAD_PREFIX } from "./background/importStages.js";
 
 let reviewQueue = [];
 let ignorePairsCache = null;
@@ -19,6 +21,83 @@ let importInProgress = false;
 const storageManager = new StorageManager();
 
 const IGNORE_STORAGE_KEY = "ignoredDuplicates";
+
+(async () => {
+  try {
+    const jobSystem = await initializeJobSystem();
+    registerImportJobStages(jobSystem);
+    wireUrlIndexListeners();
+    const { urlIndex: existingIndex } = await chrome.storage.local.get("urlIndex");
+    if (!existingIndex) {
+      await rebuildUrlIndex();
+    }
+  } catch (error) {
+    console.warn("Job system bootstrap failed:", error);
+  }
+})();
+
+async function queueImportJob(html, parentId = "1") {
+  const result = await JobSystemCommands.startJob("popup", { metadata: { jobType: "import" } });
+  if (!result.success || !result.jobId) {
+    throw new Error(result.error || "Failed to start import job");
+  }
+
+  const jobId = result.jobId;
+  const payload = {
+    [`${JOB_META_PREFIX}${jobId}`]: { type: "import", parentId },
+    [`${IMPORT_PAYLOAD_PREFIX}${jobId}`]: { html, parentId }
+  };
+
+  try {
+    await chrome.storage.local.set(payload);
+    return jobId;
+  } catch (error) {
+    console.warn("Failed to persist import payload:", error);
+    await chrome.storage.local.remove(Object.keys(payload));
+    await JobSystemCommands.cancelJob().catch(() => {});
+    throw error;
+  }
+}
+
+async function queueEnrichJob(bookmarkId) {
+  if (!bookmarkId) return null;
+
+  const result = await JobSystemCommands.startJob("popup", { metadata: { jobType: "enrich-one" } });
+  if (!result.success || !result.jobId) {
+    return null;
+  }
+
+  const jobId = result.jobId;
+  const payload = {
+    [`${JOB_META_PREFIX}${jobId}`]: { type: "enrich-one" },
+    [`${ENRICH_PAYLOAD_PREFIX}${jobId}`]: { id: bookmarkId }
+  };
+
+  try {
+    await chrome.storage.local.set(payload);
+    return jobId;
+  } catch (error) {
+    console.warn("Failed to persist enrichment payload:", error);
+    await chrome.storage.local.remove(Object.keys(payload));
+    await JobSystemCommands.cancelJob().catch(() => {});
+    return null;
+  }
+}
+
+async function isDuplicateUrl(url) {
+  if (!url) return false;
+  const normalized = normalizeUrlForKey(url);
+  if (!normalized) return false;
+  const { urlIndex } = await chrome.storage.local.get("urlIndex");
+  return Boolean(urlIndex && urlIndex[normalized]);
+}
+
+function shouldQueueImport(html) {
+  if (!html || typeof html !== "string") return false;
+  if (html.length > 500_000) return true;
+  const dtMatches = html.match(/<DT/gi)?.length || 0;
+  return dtMatches >= 800;
+}
 
 async function loadQueue() {
   const { reviewQueue: stored } = await chrome.storage.local.get('reviewQueue');
@@ -344,9 +423,31 @@ chrome.runtime.onMessage.addListener((msg, _sender, reply) => {
           return;
         }
 
-        case "CREATE_BOOKMARK":
-          safeReply(await addBookmark(msg.payload));
+        case "CHECK_DUPLICATE_URL": {
+          try {
+            safeReply({ exists: await isDuplicateUrl(msg.url) });
+          } catch (error) {
+            console.warn("Duplicate lookup failed:", error);
+            safeReply({ exists: false, error: String(error) });
+          }
           return;
+        }
+
+        case "CREATE_BOOKMARK": {
+          try {
+            const created = await addBookmark(msg.payload);
+            safeReply(created);
+            if (created?.id) {
+              queueEnrichJob(created.id).catch((error) => {
+                console.warn("Failed to queue enrichment job:", error);
+              });
+            }
+          } catch (error) {
+            console.warn("Failed to create bookmark:", error);
+            safeReply(null);
+          }
+          return;
+        }
 
         case "UPDATE_BOOKMARK":
           safeReply(await editBookmark(msg.id, msg.changes));
@@ -361,10 +462,29 @@ chrome.runtime.onMessage.addListener((msg, _sender, reply) => {
           safeReply(true);
           return;
 
-        case "IMPORT_BOOKMARKS":
-          await importHtml(msg.text, msg.parentId);
-          safeReply(true);
+        case "IMPORT_BOOKMARKS": {
+          const html = msg?.text || "";
+          const parentId = msg?.parentId || "1";
+          try {
+            if (shouldQueueImport(html)) {
+              const jobId = await queueImportJob(html, parentId);
+              safeReply({ success: true, queued: true, jobId });
+            } else {
+              await importHtml(html, parentId);
+              safeReply({ success: true, queued: false });
+            }
+          } catch (error) {
+            console.warn("Queued import failed, attempting direct import:", error);
+            try {
+              await importHtml(html, parentId);
+              safeReply({ success: true, queued: false, fallback: true });
+            } catch (fallbackError) {
+              console.error("Fallback import failed:", fallbackError);
+              safeReply({ success: false, error: String(fallbackError) });
+            }
+          }
           return;
+        }
 
         case "GET_TREE":
           safeReply(await chrome.bookmarks.getTree());
@@ -388,6 +508,14 @@ chrome.runtime.onMessage.addListener((msg, _sender, reply) => {
         }
 
         case "GET_JOB_STATUS": {
+          const status = await JobSystemCommands.getJobStatus();
+          if (status.success) {
+            if (status.snapshot) {
+              safeReply(status.snapshot);
+              return;
+            }
+            // Fall through to legacy snapshot if no active job.
+          }
           try {
             const { dedupeJob } = await chrome.storage.local.get('dedupeJob');
             safeReply(dedupeJob || null);
