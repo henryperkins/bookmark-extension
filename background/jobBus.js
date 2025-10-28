@@ -4,41 +4,25 @@
  * Supports both port-based streaming and storage-based fallback
  */
 
-import { JobEvent, JobCommand } from '../../shared/jobTypes.js';
 
-export interface PortInfo {
-  port: chrome.runtime.Port;
-  name: string;
-  connectedAt: number;
-  lastSeen: number;
-  messageCount: number;
-}
-
-export interface EventBusOptions {
-  heartbeatInterval?: number;
-  maxMessageQueue?: number;
-  retryAttempts?: number;
-  retryDelay?: number;
-}
+const DEFAULT_BUS_OPTIONS = {
+  heartbeatInterval: 30000,
+  maxMessageQueue: 100,
+  retryAttempts: 3,
+  retryDelay: 1000
+};
 
 export class JobBus {
-  private subscribers: Map<string, Set<(event: JobEvent) => void>> = new Map();
-  private ports: Map<string, PortInfo> = new Map();
-  private messageQueue: Array<{ event: JobEvent; timestamp: number }> = [];
-  private isListening: boolean = false;
-  private heartbeatTimer: NodeJS.Timeout | null = null;
-  private storageListener: (changes: any, namespace: string) => void | null = null;
-  private options: EventBusOptions;
-  private lastEvent: JobEvent | null = null;
-
-  constructor(options: EventBusOptions = {}) {
-    this.options = {
-      heartbeatInterval: 30000, // 30 seconds
-      maxMessageQueue: 100,
-      retryAttempts: 3,
-      retryDelay: 1000,
-      ...options
-    };
+  constructor(options = {}) {
+    this.options = { ...DEFAULT_BUS_OPTIONS, ...options };
+    this.subscribers = new Map();
+    this.ports = new Map();
+    this.messageQueue = [];
+    this.isListening = false;
+    this.heartbeatTimer = null;
+    this.storageListener = null;
+    this.lastEvent = null;
+    this.startTime = Date.now();
 
     this.setupMessageListener();
     this.startHeartbeat();
@@ -47,7 +31,7 @@ export class JobBus {
   /**
    * Connect a port to the event bus
    */
-  connect(name: string): chrome.runtime.Port | null {
+  connect(name) {
     try {
       const port = chrome.runtime.connect({ name });
       
@@ -56,7 +40,7 @@ export class JobBus {
         this.disconnect(name);
       }
 
-      const portInfo: PortInfo = {
+      const portInfo = {
         port,
         name,
         connectedAt: Date.now(),
@@ -95,7 +79,7 @@ export class JobBus {
   /**
    * Disconnect a port from the event bus
    */
-  disconnect(name: string): void {
+  disconnect(name) {
     const portInfo = this.ports.get(name);
     if (portInfo) {
       try {
@@ -110,7 +94,7 @@ export class JobBus {
   /**
    * Publish an event to all subscribers and connected ports
    */
-  publish(event: JobEvent): void {
+  publish(event) {
     this.lastEvent = event;
     const timestamp = Date.now();
 
@@ -118,8 +102,9 @@ export class JobBus {
     this.messageQueue.push({ event, timestamp });
     
     // Trim queue if it gets too large
-    if (this.messageQueue.length > this.options.maxMessageQueue!) {
-      this.messageQueue = this.messageQueue.slice(-this.options.maxMessageQueue!);
+    const maxQueueSize = Number.isFinite(this.options.maxMessageQueue) ? this.options.maxMessageQueue : DEFAULT_BUS_OPTIONS.maxMessageQueue;
+    if (this.messageQueue.length > maxQueueSize) {
+      this.messageQueue = this.messageQueue.slice(-maxQueueSize);
     }
 
     // Notify local subscribers
@@ -135,12 +120,15 @@ export class JobBus {
   /**
    * Subscribe to events from the job bus
    */
-  subscribe(name: string, listener: (event: JobEvent) => void): () => void {
+  subscribe(name, listener) {
     if (!this.subscribers.has(name)) {
       this.subscribers.set(name, new Set());
     }
 
-    this.subscribers.get(name)!.add(listener);
+    const listeners = this.subscribers.get(name);
+    if (listeners) {
+      listeners.add(listener);
+    }
 
     // Return unsubscribe function
     return () => {
@@ -157,28 +145,28 @@ export class JobBus {
   /**
    * Unsubscribe a listener
    */
-  unsubscribe(name: string): void {
+  unsubscribe(name) {
     this.subscribers.delete(name);
   }
 
   /**
    * Get connected port names
    */
-  getConnectedPorts(): string[] {
+  getConnectedPorts() {
     return Array.from(this.ports.keys());
   }
 
   /**
    * Get subscriber names
    */
-  getSubscribers(): string[] {
+  getSubscribers() {
     return Array.from(this.subscribers.keys());
   }
 
   /**
    * Send a command to a specific port (for popup -> background communication)
    */
-  sendCommandToPort(portName: string, command: JobCommand, payload?: Record<string, unknown>): void {
+  sendCommandToPort(portName, command, payload) {
     const portInfo = this.ports.get(portName);
     if (portInfo) {
       this.sendToPort(portInfo.port, {
@@ -193,7 +181,7 @@ export class JobBus {
   /**
    * Handle message from port
    */
-  private handlePortMessage(portName: string, message: any): void {
+  handlePortMessage(portName, message) {
     const portInfo = this.ports.get(portName);
     if (!portInfo) return;
 
@@ -218,7 +206,7 @@ export class JobBus {
   /**
    * Handle port disconnection
    */
-  private handlePortDisconnect(portName: string): void {
+  handlePortDisconnect(portName) {
     console.log(`Port ${portName} disconnected`);
     this.ports.delete(portName);
     
@@ -232,7 +220,7 @@ export class JobBus {
   /**
    * Notify local subscribers
    */
-  private notifySubscribers(event: JobEvent): void {
+  notifySubscribers(event) {
     this.subscribers.forEach((listeners) => {
       listeners.forEach((listener) => {
         try {
@@ -247,7 +235,7 @@ export class JobBus {
   /**
    * Send event to all connected ports
    */
-  private broadcastToPorts(event: JobEvent): void {
+  broadcastToPorts(event) {
     this.ports.forEach((portInfo) => {
       this.sendToPort(portInfo.port, event);
     });
@@ -256,14 +244,15 @@ export class JobBus {
   /**
    * Send message to a specific port with retry logic
    */
-  private sendToPort(port: chrome.runtime.Port, event: any, attempt: number = 1): void {
+  sendToPort(port, event, attempt = 1) {
     try {
       port.postMessage(event);
     } catch (error) {
-      if (attempt <= this.options.retryAttempts!) {
+      const maxAttempts = Number.isFinite(this.options.retryAttempts) ? this.options.retryAttempts : DEFAULT_BUS_OPTIONS.retryAttempts;
+      if (attempt <= maxAttempts) {
         setTimeout(() => {
           this.sendToPort(port, event, attempt + 1);
-        }, this.options.retryDelay! * attempt);
+        }, (Number.isFinite(this.options.retryDelay) ? this.options.retryDelay : DEFAULT_BUS_OPTIONS.retryDelay) * attempt);
       } else {
         console.warn(`Failed to send message to port after ${attempt - 1} retries:`, error);
       }
@@ -273,7 +262,7 @@ export class JobBus {
   /**
    * Setup message listener for background script
    */
-  private setupMessageListener(): void {
+  setupMessageListener() {
     if (this.isListening) return;
 
     chrome.runtime.onMessage.addListener((message, sender, sendResponse) => {
@@ -293,7 +282,7 @@ export class JobBus {
   /**
    * Setup storage listener for fallback communication
    */
-  private setupStorageListener(): void {
+  setupStorageListener() {
     if (this.storageListener) return;
 
     this.storageListener = (changes, namespace) => {
@@ -316,7 +305,7 @@ export class JobBus {
   /**
    * Save event to storage for fallback communication
    */
-  private saveToStorage(event: JobEvent): void {
+  saveToStorage(event) {
     try {
       chrome.storage.local.set({
         jobEventBus: JSON.stringify(event)
@@ -329,7 +318,7 @@ export class JobBus {
   /**
    * Load last event from storage
    */
-  async loadLastEvent(): Promise<JobEvent | null> {
+  async loadLastEvent() {
     try {
       const result = await chrome.storage.local.get('jobEventBus');
       if (result.jobEventBus) {
@@ -344,18 +333,20 @@ export class JobBus {
   /**
    * Start heartbeat to keep connections alive
    */
-  private startHeartbeat(): void {
+  startHeartbeat() {
+    const interval = Number.isFinite(this.options.heartbeatInterval) ? this.options.heartbeatInterval : DEFAULT_BUS_OPTIONS.heartbeatInterval;
     this.heartbeatTimer = setInterval(() => {
       this.performHeartbeat();
-    }, this.options.heartbeatInterval!);
+    }, interval);
   }
 
   /**
    * Perform heartbeat check
    */
-  private performHeartbeat(): void {
+  performHeartbeat() {
     const now = Date.now();
-    const staleThreshold = this.options.heartbeatInterval! * 3; // 3x heartbeat interval
+    const interval = Number.isFinite(this.options.heartbeatInterval) ? this.options.heartbeatInterval : DEFAULT_BUS_OPTIONS.heartbeatInterval;
+    const staleThreshold = interval * 3; // 3x heartbeat interval
 
     // Check for stale connections
     this.ports.forEach((portInfo, name) => {
@@ -378,12 +369,7 @@ export class JobBus {
   /**
    * Get statistics about the event bus
    */
-  getStats(): {
-    connectedPorts: number;
-    subscriberCount: number;
-    messageQueueSize: number;
-    uptime: number;
-  } {
+  getStats() {
     return {
       connectedPorts: this.ports.size,
       subscriberCount: this.subscribers.size,
@@ -392,33 +378,31 @@ export class JobBus {
     };
   }
 
-  private startTime: number = Date.now();
-
   /**
    * Setup storage fallback
    */
-  setupStorageFallback(): void {
+  setupStorageFallback() {
     this.setupStorageListener();
   }
 
   /**
    * Get message queue for debugging
    */
-  getMessageQueue(limit: number = 50): Array<{ event: JobEvent; timestamp: number }> {
+  getMessageQueue(limit = 50) {
     return this.messageQueue.slice(-limit);
   }
 
   /**
    * Clear message queue
    */
-  clearQueue(): void {
+  clearQueue() {
     this.messageQueue = [];
   }
 
   /**
    * Cleanup resources
    */
-  dispose(): void {
+  dispose() {
     // Clear heartbeat timer
     if (this.heartbeatTimer) {
       clearInterval(this.heartbeatTimer);
@@ -447,12 +431,12 @@ export class JobBus {
 /**
  * Global event bus instance
  */
-let globalJobBus: JobBus | null = null;
+let globalJobBus = null;
 
 /**
  * Get or create the global job bus instance
  */
-export function getJobBus(options?: EventBusOptions): JobBus {
+export function getJobBus(options) {
   if (!globalJobBus) {
     globalJobBus = new JobBus(options);
     globalJobBus.setupStorageFallback();
@@ -463,7 +447,7 @@ export function getJobBus(options?: EventBusOptions): JobBus {
 /**
  * Dispose the global job bus
  */
-export function disposeJobBus(): void {
+export function disposeJobBus() {
   if (globalJobBus) {
     globalJobBus.dispose();
     globalJobBus = null;

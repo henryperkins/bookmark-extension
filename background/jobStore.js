@@ -4,53 +4,35 @@
  * Implements quota-aware operations and migration support
  */
 
-import {
-  JobSnapshot,
-  JobActivity,
-  JobQueueSummary,
-  JobStore as IJobStore,
-  ActivityLevel
-} from '../../shared/jobTypes.js';
 
-export interface JobStoreOptions {
-  maxActivityEntries?: number;
-  maxQueueHistory?: number;
-  debounceDelay?: number;
-  retryAttempts?: number;
-  retryDelay?: number;
-  enableCompression?: boolean;
-}
+const DEFAULT_STORE_OPTIONS = {
+  maxActivityEntries: 100,
+  maxQueueHistory: 10,
+  debounceDelay: 500,
+  retryAttempts: 3,
+  retryDelay: 1000,
+  enableCompression: false
+};
 
-export class JobStore implements IJobStore {
-  private options: JobStoreOptions;
-  private saveQueue: Map<string, number> = new Map();
-  private lastSave: Map<string, number> = new Map();
+export class JobStore {
+  constructor(options = {}) {
+    this.options = { ...DEFAULT_STORE_OPTIONS, ...options };
+    this.saveQueue = new Map();
+    this.lastSave = new Map();
 
-  // Storage keys
-  private readonly KEYS = {
-    SNAPSHOT: 'jobSnapshot',
-    ACTIVITY: 'jobActivity',
-    QUEUE: 'jobQueue',
-    HISTORY: 'jobHistory',
-    MIGRATION: 'jobStoreMigration'
-  };
-
-  constructor(options: JobStoreOptions = {}) {
-    this.options = {
-      maxActivityEntries: 100,
-      maxQueueHistory: 10,
-      debounceDelay: 500,
-      retryAttempts: 3,
-      retryDelay: 1000,
-      enableCompression: false,
-      ...options
+    this.KEYS = {
+      SNAPSHOT: 'jobSnapshot',
+      ACTIVITY: 'jobActivity',
+      QUEUE: 'jobQueue',
+      HISTORY: 'jobHistory',
+      MIGRATION: 'jobStoreMigration'
     };
   }
 
   /**
    * Load the current job snapshot
    */
-  async loadSnapshot(): Promise<JobSnapshot | null> {
+  async loadSnapshot() {
     try {
       const result = await chrome.storage.local.get(this.KEYS.SNAPSHOT);
       const snapshotData = result[this.KEYS.SNAPSHOT];
@@ -76,7 +58,7 @@ export class JobStore implements IJobStore {
   /**
    * Save the current job snapshot
    */
-  async saveSnapshot(snapshot: JobSnapshot): Promise<void> {
+  async saveSnapshot(snapshot) {
     if (!this.isValidSnapshot(snapshot)) {
       throw new Error('Invalid snapshot data');
     }
@@ -86,7 +68,8 @@ export class JobStore implements IJobStore {
     const now = Date.now();
 
     // Check if we need to debounce
-    if (now - lastSaveTime < this.options.debounceDelay!) {
+    const debounceDelay = Number.isFinite(this.options.debounceDelay) ? this.options.debounceDelay : DEFAULT_STORE_OPTIONS.debounceDelay;
+    if (now - lastSaveTime < debounceDelay) {
       // Schedule deferred save
       this.scheduleSave(key, snapshot);
       return;
@@ -99,7 +82,7 @@ export class JobStore implements IJobStore {
   /**
    * Append activity entry to the log
    */
-  async appendActivity(entry: JobActivity): Promise<void> {
+  async appendActivity(entry) {
     if (!this.isValidActivity(entry)) {
       throw new Error('Invalid activity entry');
     }
@@ -107,14 +90,15 @@ export class JobStore implements IJobStore {
     try {
       // Load existing activity log
       const result = await chrome.storage.local.get(this.KEYS.ACTIVITY);
-      const activities: JobActivity[] = result[this.KEYS.ACTIVITY] || [];
+      const activities = result[this.KEYS.ACTIVITY] || [];
       
       // Add new entry
       activities.push(entry);
       
       // Trim if too long
-      if (activities.length > this.options.maxActivityEntries!) {
-        activities.splice(0, activities.length - this.options.maxActivityEntries!);
+      const maxActivityEntries = Number.isFinite(this.options.maxActivityEntries) ? this.options.maxActivityEntries : DEFAULT_STORE_OPTIONS.maxActivityEntries;
+      if (activities.length > maxActivityEntries) {
+        activities.splice(0, activities.length - maxActivityEntries);
       }
       
       // Save trimmed log
@@ -128,10 +112,10 @@ export class JobStore implements IJobStore {
   /**
    * Load activity log entries
    */
-  async loadActivity(limit?: number): Promise<JobActivity[]> {
+  async loadActivity(limit) {
     try {
       const result = await chrome.storage.local.get(this.KEYS.ACTIVITY);
-      const activities: JobActivity[] = result[this.KEYS.ACTIVITY] || [];
+      const activities = result[this.KEYS.ACTIVITY] || [];
       
       // Validate entries
       const validActivities = activities.filter(entry => this.isValidActivity(entry));
@@ -157,7 +141,7 @@ export class JobStore implements IJobStore {
   /**
    * Clear all data for a specific job
    */
-  async clear(jobId: string): Promise<void> {
+  async clear(jobId) {
     try {
       // Clear snapshot if it matches the job ID
       const snapshot = await this.loadSnapshot();
@@ -167,7 +151,7 @@ export class JobStore implements IJobStore {
 
       // Filter activity log to remove entries for this job
       const result = await chrome.storage.local.get(this.KEYS.ACTIVITY);
-      const activities: JobActivity[] = result[this.KEYS.ACTIVITY] || [];
+      const activities = result[this.KEYS.ACTIVITY] || [];
       const filteredActivities = activities.filter(entry => entry.jobId !== jobId);
       
       if (filteredActivities.length !== activities.length) {
@@ -185,7 +169,7 @@ export class JobStore implements IJobStore {
   /**
    * Save job queue summary
    */
-  async saveQueue(queue: JobQueueSummary): Promise<void> {
+  async saveQueue(queue) {
     if (!this.isValidQueue(queue)) {
       throw new Error('Invalid queue data');
     }
@@ -196,7 +180,7 @@ export class JobStore implements IJobStore {
   /**
    * Load job queue summary
    */
-  async loadQueue(): Promise<JobQueueSummary | null> {
+  async loadQueue() {
     try {
       const result = await chrome.storage.local.get(this.KEYS.QUEUE);
       const queueData = result[this.KEYS.QUEUE];
@@ -214,7 +198,7 @@ export class JobStore implements IJobStore {
   /**
    * Clear the job snapshot
    */
-  async clearSnapshot(): Promise<void> {
+  async clearSnapshot() {
     try {
       await chrome.storage.local.remove(this.KEYS.SNAPSHOT);
       this.lastSave.delete(this.KEYS.SNAPSHOT);
@@ -226,7 +210,7 @@ export class JobStore implements IJobStore {
   /**
    * Clear the activity log
    */
-  async clearActivity(): Promise<void> {
+  async clearActivity() {
     try {
       await chrome.storage.local.remove(this.KEYS.ACTIVITY);
       this.lastSave.delete(this.KEYS.ACTIVITY);
@@ -238,14 +222,7 @@ export class JobStore implements IJobStore {
   /**
    * Get storage usage statistics
    */
-  async getStorageStats(): Promise<{
-    usedBytes: number;
-    availableBytes: number;
-    snapshotSize: number;
-    activitySize: number;
-    queueSize: number;
-    historySize: number;
-  }> {
+  async getStorageStats() {
     try {
       const usage = await chrome.storage.local.getBytesInUse();
       const quota = await chrome.storage.local.getQuota();
@@ -287,14 +264,14 @@ export class JobStore implements IJobStore {
   /**
    * Clean up old data to free storage space
    */
-  async cleanup(maxAgeDays: number = 30): Promise<number> {
+  async cleanup(maxAgeDays = 30) {
     try {
       const cutoffTime = Date.now() - (maxAgeDays * 24 * 60 * 60 * 1000);
       let cleaned = 0;
 
       // Clean old activity entries
       const result = await chrome.storage.local.get(this.KEYS.ACTIVITY);
-      const activities: JobActivity[] = result[this.KEYS.ACTIVITY] || [];
+      const activities = result[this.KEYS.ACTIVITY] || [];
       const recentActivities = activities.filter(entry => {
         const entryTime = new Date(entry.timestamp).getTime();
         return entryTime > cutoffTime;
@@ -307,7 +284,7 @@ export class JobStore implements IJobStore {
 
       // Clean old queue history
       const queueResult = await chrome.storage.local.get(this.KEYS.HISTORY);
-      const queueHistory: Array<{ jobId: string; timestamp: number }> = queueResult[this.KEYS.HISTORY] || [];
+      const queueHistory = queueResult[this.KEYS.HISTORY] || [];
       const recentHistory = queueHistory.filter(entry => entry.timestamp > cutoffTime);
 
       if (recentHistory.length < queueHistory.length) {
@@ -325,19 +302,24 @@ export class JobStore implements IJobStore {
   /**
    * Perform the actual save operation with retry logic
    */
-  private async performSave(key: string, data: any, attempt: number = 1): Promise<void> {
+  async performSave(key, data, attempt = 1) {
     try {
       // Add timestamp for tracking
-      const dataWithTimestamp = {
-        ...data,
-        _lastUpdated: Date.now()
-      };
+      const dataWithTimestamp = Array.isArray(data) ? [...data] : { ...data };
+      Object.defineProperty(dataWithTimestamp, '_lastUpdated', {
+        value: Date.now(),
+        enumerable: false,
+        configurable: true,
+        writable: true
+      });
 
       await chrome.storage.local.set({ [key]: dataWithTimestamp });
     } catch (error) {
-      if (attempt <= this.options.retryAttempts!) {
+      const maxAttempts = Number.isFinite(this.options.retryAttempts) ? this.options.retryAttempts : DEFAULT_STORE_OPTIONS.retryAttempts;
+      const retryDelay = Number.isFinite(this.options.retryDelay) ? this.options.retryDelay : DEFAULT_STORE_OPTIONS.retryDelay;
+      if (attempt <= maxAttempts) {
         console.warn(`Save attempt ${attempt} failed for ${key}, retrying...`, error);
-        await new Promise(resolve => setTimeout(resolve, this.options.retryDelay! * attempt));
+        await new Promise(resolve => setTimeout(resolve, retryDelay * attempt));
         return this.performSave(key, data, attempt + 1);
       } else {
         console.error(`Save failed for ${key} after ${attempt - 1} retries:`, error);
@@ -349,7 +331,7 @@ export class JobStore implements IJobStore {
   /**
    * Schedule a deferred save operation
    */
-  private scheduleSave(key: string, data: any): void {
+  scheduleSave(key, data) {
     // Clear existing timeout
     const existingTimeout = this.saveQueue.get(key);
     if (existingTimeout) {
@@ -361,7 +343,7 @@ export class JobStore implements IJobStore {
       this.saveQueue.delete(key);
       await this.performSave(key, data);
       this.lastSave.set(key, Date.now());
-    }, this.options.debounceDelay);
+    }, Number.isFinite(this.options.debounceDelay) ? this.options.debounceDelay : DEFAULT_STORE_OPTIONS.debounceDelay);
 
     this.saveQueue.set(key, timeout);
   }
@@ -369,7 +351,7 @@ export class JobStore implements IJobStore {
   /**
    * Calculate approximate size of data in bytes
    */
-  private calculateSize(data: any): number {
+  calculateSize(data) {
     try {
       return new Blob([JSON.stringify(data)]).size;
     } catch (error) {
@@ -380,10 +362,10 @@ export class JobStore implements IJobStore {
   /**
    * Remove job from queue history
    */
-  private async clearFromQueueHistory(jobId: string): Promise<void> {
+  async clearFromQueueHistory(jobId) {
     try {
       const result = await chrome.storage.local.get(this.KEYS.HISTORY);
-      const history: Array<{ jobId: string; timestamp: number }> = result[this.KEYS.HISTORY] || [];
+      const history = result[this.KEYS.HISTORY] || [];
       const filteredHistory = history.filter(entry => entry.jobId !== jobId);
       
       if (filteredHistory.length !== history.length) {
@@ -397,7 +379,7 @@ export class JobStore implements IJobStore {
   /**
    * Validate snapshot structure
    */
-  private isValidSnapshot(data: any): data is JobSnapshot {
+  isValidSnapshot(data) {
     return data &&
            typeof data.jobId === 'string' &&
            typeof data.status === 'string' &&
@@ -413,7 +395,7 @@ export class JobStore implements IJobStore {
   /**
    * Validate activity entry structure
    */
-  private isValidActivity(data: any): data is JobActivity {
+  isValidActivity(data) {
     return data &&
            typeof data.jobId === 'string' &&
            typeof data.timestamp === 'string' &&
@@ -425,7 +407,7 @@ export class JobStore implements IJobStore {
   /**
    * Validate queue data structure
    */
-  private isValidQueue(data: any): data is JobQueueSummary {
+  isValidQueue(data) {
     return data &&
            typeof data.total === 'number' &&
            typeof data.pending === 'number' &&
@@ -437,17 +419,18 @@ export class JobStore implements IJobStore {
   /**
    * Add job to history for tracking
    */
-  async addToHistory(jobId: string): Promise<void> {
+  async addToHistory(jobId) {
     try {
       const result = await chrome.storage.local.get(this.KEYS.HISTORY);
-      const history: Array<{ jobId: string; timestamp: number }> = result[this.KEYS.HISTORY] || [];
+      const history = result[this.KEYS.HISTORY] || [];
       
       // Add new entry
       history.push({ jobId, timestamp: Date.now() });
       
       // Trim to max history size
-      if (history.length > this.options.maxQueueHistory!) {
-        history.splice(0, history.length - this.options.maxQueueHistory!);
+      const maxHistory = Number.isFinite(this.options.maxQueueHistory) ? this.options.maxQueueHistory : DEFAULT_STORE_OPTIONS.maxQueueHistory;
+      if (history.length > maxHistory) {
+        history.splice(0, history.length - maxHistory);
       }
       
       await this.performSave(this.KEYS.HISTORY, history);
@@ -459,7 +442,7 @@ export class JobStore implements IJobStore {
   /**
    * Get job history
    */
-  async getHistory(): Promise<Array<{ jobId: string; timestamp: number }>> {
+  async getHistory() {
     try {
       const result = await chrome.storage.local.get(this.KEYS.HISTORY);
       return result[this.KEYS.HISTORY] || [];
@@ -472,7 +455,7 @@ export class JobStore implements IJobStore {
   /**
    * Check storage quota and warn if approaching limits
    */
-  async checkQuotaWarning(): Promise<{ warning: boolean; usage: number; quota: number }> {
+  async checkQuotaWarning() {
     try {
       const usage = await chrome.storage.local.getBytesInUse();
       const quota = await chrome.storage.local.getQuota();
@@ -494,7 +477,7 @@ export class JobStore implements IJobStore {
   /**
    * Migrate from old storage format
    */
-  async migrateFromLegacy(): Promise<{ migrated: boolean; error?: string }> {
+  async migrateFromLegacy() {
     try {
       // Check if migration already performed
       const migrationResult = await chrome.storage.local.get(this.KEYS.MIGRATION);
@@ -555,7 +538,7 @@ export class JobStore implements IJobStore {
   /**
    * Reset all stored data
    */
-  async reset(): Promise<void> {
+  async reset() {
     try {
       await chrome.storage.local.remove([
         this.KEYS.SNAPSHOT,
@@ -578,12 +561,12 @@ export class JobStore implements IJobStore {
 /**
  * Global job store instance
  */
-let globalJobStore: JobStore | null = null;
+let globalJobStore = null;
 
 /**
  * Get or create the global job store instance
  */
-export function getJobStore(options?: JobStoreOptions): JobStore {
+export function getJobStore(options) {
   if (!globalJobStore) {
     globalJobStore = new JobStore(options);
   }
@@ -593,7 +576,7 @@ export function getJobStore(options?: JobStoreOptions): JobStore {
 /**
  * Dispose the global job store
  */
-export function disposeJobStore(): void {
+export function disposeJobStore() {
   if (globalJobStore) {
     // Clear any pending saves
     globalJobStore = null;

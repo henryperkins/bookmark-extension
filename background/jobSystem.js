@@ -5,69 +5,29 @@
  */
 
 import { JobRunner } from './jobRunner.js';
-import { JobBus, getJobBus } from './jobBus.js';
-import { JobStore, getJobStore } from './jobStore.js';
-import {
-  JobCommand,
-  JobStatus,
-  StageId,
-  StageExecutor,
-  StageContext,
-  StageResult,
-  ActivityLevel,
-  JobSnapshot,
-  JobActivity
-} from '../../shared/jobTypes.js';
+import { getJobBus } from './jobBus.js';
+import { getJobStore } from './jobStore.js';
 
-export interface JobSystemOptions {
-  jobRunner?: {
-    maxRetries?: number;
-    retryDelay?: number;
-    autoPauseOnError?: boolean;
-  };
-  jobBus?: {
-    heartbeatInterval?: number;
-    maxMessageQueue?: number;
-    retryAttempts?: number;
-  };
-  jobStore?: {
-    maxActivityEntries?: number;
-    maxQueueHistory?: number;
-    debounceDelay?: number;
-    enableCompression?: boolean;
-  };
-}
+const DEFAULT_ALLOWED_SENDER_PREFIX = () => `chrome-extension://${chrome.runtime.id}`;
 
-export interface JobSystem {
-  runner: JobRunner;
-  bus: JobBus;
-  store: JobStore;
-  initialize(): Promise<void>;
-  dispose(): void;
-  getCurrentJob(): JobSnapshot | null;
-  handleCommand(command: JobCommand, payload?: Record<string, unknown>): Promise<{ success: boolean; error?: string }>;
-}
-
-export class JobSystemImpl implements JobSystem {
-  public runner: JobRunner;
-  public bus: JobBus;
-  public store: JobStore;
-  private initialized: boolean = false;
-
-  constructor(options: JobSystemOptions = {}) {
-    // Initialize components with options
+export class JobSystemImpl {
+  constructor(options = {}) {
     this.store = getJobStore(options.jobStore);
     this.bus = getJobBus(options.jobBus);
     this.runner = new JobRunner(this.bus, this.store, options.jobRunner);
 
-    // Set up communication between components
+    this.initialized = false;
+    this.startTime = Date.now();
+    this.messageListener = null;
+    this.runnerUnsubscribe = null;
+
     this.setupEventFlow();
   }
 
   /**
    * Initialize the job system
    */
-  async initialize(): Promise<void> {
+  async initialize() {
     if (this.initialized) {
       console.warn('Job system already initialized');
       return;
@@ -84,6 +44,7 @@ export class JobSystemImpl implements JobSystem {
 
       // Initialize the job runner with stored state
       await this.runner.initialize();
+      this.setupEventFlow();
 
       // Set up message listener for commands from popup
       this.setupMessageListener();
@@ -97,6 +58,7 @@ export class JobSystemImpl implements JobSystem {
         });
       }
 
+      this.startTime = Date.now();
       this.initialized = true;
       console.log('Job system initialized successfully');
 
@@ -109,14 +71,14 @@ export class JobSystemImpl implements JobSystem {
   /**
    * Get current job snapshot
    */
-  getCurrentJob(): JobSnapshot | null {
+  getCurrentJob() {
     return this.runner.getCurrentJob();
   }
 
   /**
    * Handle job commands from popup or other sources
    */
-  async handleCommand(command: JobCommand, payload?: Record<string, unknown>): Promise<{ success: boolean; error?: string }> {
+  async handleCommand(command, payload = {}) {
     if (!this.initialized) {
       return { success: false, error: 'Job system not initialized' };
     }
@@ -133,20 +95,28 @@ export class JobSystemImpl implements JobSystem {
   /**
    * Register a stage executor for a specific stage
    */
-  registerStageExecutor(stage: StageId, executor: StageExecutor): void {
+  registerStageExecutor(stage, executor) {
     this.runner.registerStageExecutor(stage, executor);
   }
 
   /**
    * Clean up resources
    */
-  dispose(): void {
+  dispose() {
     if (!this.initialized) return;
 
     console.log('Disposing job system...');
     
     this.runner.dispose();
     this.bus.dispose();
+    if (this.runnerUnsubscribe) {
+      this.runnerUnsubscribe();
+      this.runnerUnsubscribe = null;
+    }
+    if (this.messageListener) {
+      chrome.runtime.onMessage.removeListener(this.messageListener);
+      this.messageListener = null;
+    }
     
     this.initialized = false;
     console.log('Job system disposed');
@@ -155,9 +125,13 @@ export class JobSystemImpl implements JobSystem {
   /**
    * Set up event flow between components
    */
-  private setupEventFlow(): void {
-    // Subscribe to job runner updates and forward to event bus
-    this.runner.subscribe(() => {
+  setupEventFlow() {
+    if (this.runnerUnsubscribe) {
+      this.runnerUnsubscribe();
+      this.runnerUnsubscribe = null;
+    }
+
+    this.runnerUnsubscribe = this.runner.subscribe(() => {
       const currentJob = this.runner.getCurrentJob();
       if (currentJob) {
         this.bus.publish({
@@ -171,46 +145,51 @@ export class JobSystemImpl implements JobSystem {
   /**
    * Set up message listener for chrome.runtime messages
    */
-  private setupMessageListener(): void {
-    chrome.runtime.onMessage.addListener((message, sender, sendResponse) => {
-      // Only handle job-related messages
-      if (message.type !== 'jobCommand' || !message.command) {
-        return;
-      }
+  setupMessageListener() {
+    if (this.messageListener) {
+      return;
+    }
 
-      // Verify sender is authorized (popup or options page)
-      const allowedOrigins = ['chrome-extension://' + chrome.runtime.id];
-      if (!allowedOrigins.includes(sender.origin)) {
-        console.warn('Unauthorized message sender:', sender.origin);
-        sendResponse({ success: false, error: 'Unauthorized' });
+    this.messageListener = (message, sender, sendResponse) => {
+      try {
+        if (!message || message.type !== 'jobCommand' || !message.command) {
+          return;
+        }
+
+        const senderId = sender && sender.id ? sender.id : null;
+        const senderOrigin = sender && (sender.origin || sender.url) ? (sender.origin || sender.url) : '';
+        const isAuthorized = senderId === chrome.runtime.id || (typeof senderOrigin === 'string' && senderOrigin.startsWith(DEFAULT_ALLOWED_SENDER_PREFIX()));
+
+        if (!isAuthorized) {
+          console.warn('Unauthorized message sender:', senderOrigin || senderId);
+          sendResponse({ success: false, error: 'Unauthorized' });
+          return true;
+        }
+
+        this.handleCommand(message.command, message.payload)
+          .then(result => {
+            sendResponse(result);
+          })
+          .catch(error => {
+            console.error('Command handling error:', error);
+            sendResponse({ success: false, error: 'Internal error' });
+          });
+
+        return true;
+      } catch (error) {
+        console.error('Unexpected message handling error:', error);
+        sendResponse({ success: false, error: 'Internal error' });
         return true;
       }
+    };
 
-      // Handle the command
-      this.handleCommand(message.command, message.payload)
-        .then(result => {
-          sendResponse(result);
-        })
-        .catch(error => {
-          console.error('Command handling error:', error);
-          sendResponse({ success: false, error: 'Internal error' });
-        });
-
-      // Return true to indicate async response
-      return true;
-    });
+    chrome.runtime.onMessage.addListener(this.messageListener);
   }
 
   /**
    * Get system statistics
    */
-  async getStats(): Promise<{
-    initialized: boolean;
-    currentJob: JobSnapshot | null;
-    connectedPorts: number;
-    storageStats: any;
-    uptime: number;
-  }> {
+  async getStats() {
     const storageStats = await this.store.getStorageStats();
     const busStats = this.bus.getStats();
 
@@ -219,22 +198,20 @@ export class JobSystemImpl implements JobSystem {
       currentJob: this.getCurrentJob(),
       connectedPorts: busStats.connectedPorts,
       storageStats,
-      uptime: Date.now() - (this.startTime || Date.now())
+      uptime: Date.now() - this.startTime
     };
   }
-
-  private startTime: number = Date.now();
 }
 
 /**
  * Global job system instance
  */
-let globalJobSystem: JobSystemImpl | null = null;
+let globalJobSystem = null;
 
 /**
  * Initialize the job system
  */
-export async function initializeJobSystem(options?: JobSystemOptions): Promise<JobSystem> {
+export async function initializeJobSystem(options = {}) {
   if (globalJobSystem) {
     console.warn('Job system already initialized');
     return globalJobSystem;
@@ -249,14 +226,14 @@ export async function initializeJobSystem(options?: JobSystemOptions): Promise<J
 /**
  * Get the global job system instance
  */
-export function getJobSystem(): JobSystem | null {
+export function getJobSystem() {
   return globalJobSystem;
 }
 
 /**
  * Dispose the global job system
  */
-export function disposeJobSystem(): void {
+export function disposeJobSystem() {
   if (globalJobSystem) {
     globalJobSystem.dispose();
     globalJobSystem = null;
@@ -270,16 +247,21 @@ export const JobSystemCommands = {
   /**
    * Start a new cleanup job
    */
-  async startJob(requestedBy: 'alarm' | 'popup' | 'manual' = 'manual', schedule?: any): Promise<{ success: boolean; jobId?: string; error?: string }> {
+  async startJob(requestedBy = 'manual', schedule = null) {
     const jobSystem = getJobSystem();
     if (!jobSystem) {
       return { success: false, error: 'Job system not initialized' };
     }
 
-    const result = await jobSystem.handleCommand('START_JOB', { queueMeta: { requestedBy, schedule } });
+    const result = await jobSystem.handleCommand('START_JOB', {
+      queueMeta: {
+        requestedBy,
+        schedule
+      }
+    });
     if (result.success) {
       const currentJob = jobSystem.getCurrentJob();
-      return { success: true, jobId: currentJob?.jobId };
+      return { success: true, jobId: currentJob ? currentJob.jobId : undefined };
     }
     return { success: false, error: result.error };
   },
@@ -287,7 +269,7 @@ export const JobSystemCommands = {
   /**
    * Pause the current job
    */
-  async pauseJob(): Promise<{ success: boolean; error?: string }> {
+  async pauseJob() {
     const jobSystem = getJobSystem();
     if (!jobSystem) {
       return { success: false, error: 'Job system not initialized' };
@@ -299,7 +281,7 @@ export const JobSystemCommands = {
   /**
    * Resume a paused job
    */
-  async resumeJob(): Promise<{ success: boolean; error?: string }> {
+  async resumeJob() {
     const jobSystem = getJobSystem();
     if (!jobSystem) {
       return { success: false, error: 'Job system not initialized' };
@@ -311,7 +293,7 @@ export const JobSystemCommands = {
   /**
    * Cancel the current job
    */
-  async cancelJob(): Promise<{ success: boolean; error?: string }> {
+  async cancelJob() {
     const jobSystem = getJobSystem();
     if (!jobSystem) {
       return { success: false, error: 'Job system not initialized' };
@@ -323,7 +305,7 @@ export const JobSystemCommands = {
   /**
    * Get current job status
    */
-  async getJobStatus(): Promise<{ success: boolean; snapshot?: JobSnapshot; error?: string }> {
+  async getJobStatus() {
     const jobSystem = getJobSystem();
     if (!jobSystem) {
       return { success: false, error: 'Job system not initialized' };
@@ -339,7 +321,7 @@ export const JobSystemCommands = {
   /**
    * Get activity log
    */
-  async getActivityLog(limit?: number): Promise<{ success: boolean; activity?: JobActivity[]; error?: string }> {
+  async getActivityLog(limit) {
     const jobSystem = getJobSystem();
     if (!jobSystem) {
       return { success: false, error: 'Job system not initialized' };
@@ -356,33 +338,30 @@ export const JobSystemCommands = {
 /**
  * Example stage executors for the existing bookmark cleanup flow
  */
-export class BookmarkProcessingStageExecutor implements StageExecutor {
-  private processFunction: (context: StageContext) => Promise<StageResult>;
-  private stageName: string;
-
-  constructor(stageName: string, processFunction: (context: StageContext) => Promise<StageResult>) {
+export class BookmarkProcessingStageExecutor {
+  constructor(stageName, processFunction) {
     this.stageName = stageName;
     this.processFunction = processFunction;
   }
 
-  async prepare(): Promise<void> {
+  async prepare() {
     console.log(`Preparing ${this.stageName} stage`);
   }
 
-  async execute(context: StageContext): Promise<StageResult> {
+  async execute(context) {
     console.log(`Executing ${this.stageName} stage`);
-    return await this.processFunction(context);
+    return this.processFunction(context);
   }
 
-  async teardown(): Promise<void> {
+  async teardown() {
     console.log(`Cleaning up ${this.stageName} stage`);
   }
 
-  canPause(): boolean {
+  canPause() {
     return true;
   }
 
-  canCancel(): boolean {
+  canCancel() {
     return true;
   }
 }

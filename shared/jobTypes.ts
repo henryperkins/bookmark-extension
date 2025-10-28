@@ -1,11 +1,14 @@
 /**
- * Shared type definitions for the job runner system
- * Used by both background scripts and popup UI components
+ * Shared type definitions for the job runner system.
+ *
+ * The runtime implementations of these helpers live in {@link ./jobTypes.js}.
+ * This file exists purely to provide strong typings for TypeScript and IDEs
+ * while keeping the background service worker as plain JavaScript.
  */
 
-export type JobStatus = 
+export type JobStatus =
   | 'idle'
-  | 'queued' 
+  | 'queued'
   | 'running'
   | 'paused'
   | 'cancelling'
@@ -13,7 +16,7 @@ export type JobStatus =
   | 'failed'
   | 'completed';
 
-export type StageId = 
+export type StageId =
   | 'initializing'
   | 'scanning'
   | 'grouping'
@@ -23,30 +26,23 @@ export type StageId =
 
 export type ActivityLevel = 'info' | 'warn' | 'error';
 
-export type JobCommand = 
+export type JobCommand =
   | 'START_JOB'
   | 'PAUSE_JOB'
   | 'RESUME_JOB'
   | 'CANCEL_JOB'
   | 'GET_JOB_STATUS'
-  | 'GET_ACTIVITY_LOG'
-  | 'EXPORT_REPORT'
-  | 'CONNECT_PORT'
-  | 'DISCONNECT_PORT';
+  | 'GET_ACTIVITY_LOG';
 
 export interface StageUnits {
   processed: number;
-  total?: number;
+  total?: number | null;
 }
 
 export interface QueueMeta {
   requestedBy: 'alarm' | 'popup' | 'manual';
   requestedAt: string;
-  schedule?: {
-    recurring: boolean;
-    interval?: string;
-    timezone?: string;
-  };
+  schedule?: Record<string, unknown> | null;
 }
 
 export interface JobSummary {
@@ -57,11 +53,12 @@ export interface JobSummary {
   conflictsResolved: number;
   autoApplied: boolean;
   runtimeMs: number;
-  startedAt: string;
-  completedAt: string;
+  startedAt: string | null;
+  completedAt: string | null;
   reviewQueueSize: number;
   averageSimilarity?: number;
   taggingAccuracy?: number;
+  [extra: string]: unknown;
 }
 
 export interface JobSnapshot {
@@ -74,6 +71,9 @@ export interface JobSnapshot {
   indeterminate: boolean;
   activity: string;
   timestamp: string;
+  createdAt: string;
+  startedAt: string | null;
+  completedAt: string | null;
   summary?: JobSummary;
   error?: string;
   queueMeta?: QueueMeta;
@@ -85,10 +85,12 @@ export interface JobActivity {
   level: ActivityLevel;
   message: string;
   stage?: StageId;
-  action?: string;
   context?: Record<string, unknown>;
-  targetUrl?: string;
-  duplicateOf?: string;
+}
+
+export interface QueueHistoryEntry {
+  jobId: string;
+  timestamp: number;
 }
 
 export interface JobQueueSummary {
@@ -100,158 +102,12 @@ export interface JobQueueSummary {
     jobId: string;
     status: JobStatus;
     createdAt: string;
-    completedAt?: string;
+    completedAt?: string | null;
   }>;
 }
 
-export interface StageWeightMap {
-  initializing: number;
-  scanning: number;
-  grouping: number;
-  resolving: number;
-  verifying: number;
-  summarizing: number;
-}
+export type StageWeightMap = Record<StageId, number>;
 
-export interface JobStore {
-  loadSnapshot(): Promise<JobSnapshot | null>;
-  saveSnapshot(snapshot: JobSnapshot): Promise<void>;
-  appendActivity(entry: JobActivity): Promise<void>;
-  loadActivity(limit?: number): Promise<JobActivity[]>;
-  clear(jobId: string): Promise<void>;
-  saveQueue(queue: JobQueueSummary): Promise<void>;
-  loadQueue(): Promise<JobQueueSummary | null>;
-}
-
-export interface JobBus {
-  connect(name: string): chrome.runtime.Port | null;
-  disconnect(name: string): void;
-  publish(event: JobEvent): void;
-  subscribe(name: string, listener: (event: JobEvent) => void): void;
-  unsubscribe(name: string): void;
-}
-
-export interface StageExecutor {
-  prepare(): Promise<void>;
-  execute(context: StageContext): Promise<StageResult>;
-  teardown(): Promise<void>;
-  canPause(): boolean;
-  canCancel(): boolean;
-}
-
-export interface StageContext {
-  jobId: string;
-  stage: StageId;
-  processedUnits: number;
-  totalUnits: number;
-  abortController: AbortController;
-  progressCallback: (processed: number, total?: number) => void;
-  activityCallback: (level: ActivityLevel, message: string, context?: Record<string, unknown>) => void;
-}
-
-export interface StageResult {
-  completed: boolean;
-  processedUnits: number;
-  totalUnits: number;
-  summary?: Record<string, unknown>;
-  error?: Error;
-}
-
-export interface JobEvent {
-  type: 
-    | 'stageStarted'
-    | 'stageProgress' 
-    | 'stageCompleted'
-    | 'jobStatus'
-    | 'jobActivity'
-    | 'jobQueue'
-    | 'jobConnected'
-    | 'jobDisconnected';
-  job?: JobSnapshot;
-  stage?: StageId;
-  processed?: number;
-  total?: number;
-  activity?: JobActivity;
-  queue?: JobQueueSummary;
-  portName?: string;
-}
-
-export interface JobContext {
-  snapshot: JobSnapshot | null;
-  activity: JobActivity[];
-  queue: JobQueueSummary | null;
-  dispatch(command: JobCommand, payload?: Record<string, unknown>): void;
-  subscribe(listener: () => void): () => void;
-  isConnected: boolean;
-  lastError?: string;
-}
-
-export interface ExportOptions {
-  format: 'csv' | 'json';
-  includeActivity: boolean;
-  redactUrls: boolean;
-  includeMetrics: boolean;
-  timeRange?: {
-    start: string;
-    end: string;
-  };
-}
-
-export interface ExportResult {
-  success: boolean;
-  filename: string;
-  blob?: Blob;
-  error?: string;
-  downloadUrl?: string;
-}
-
-export interface ErrorInfo {
-  code: 'NETWORK' | 'AUTH' | 'QUOTA' | 'STORAGE' | 'RATE_LIMIT' | 'UNEXPECTED';
-  message: string;
-  recoverable: boolean;
-  retryAfter?: number;
-  context?: Record<string, unknown>;
-  userMessage?: string;
-}
-
-export interface AccessibilitySettings {
-  announceProgress: boolean;
-  reducedMotion: boolean;
-  highContrast: boolean;
-  screenReaderOptimized: boolean;
-}
-
-export interface LocalizationSettings {
-  language: string;
-  region: string;
-  dateFormat: string;
-  numberFormat: string;
-  timeFormat: '12h' | '24h';
-}
-
-export interface NotificationSettings {
-  showProgress: boolean;
-  showCompletion: boolean;
-  showErrors: boolean;
-  soundEnabled: boolean;
-  urgencyLevels: {
-    info: boolean;
-    warn: boolean;
-    error: boolean;
-  };
-}
-
-// Default stage weights for progress calculation
-export const DEFAULT_STAGE_WEIGHTS: StageWeightMap = {
-  initializing: 5,
-  scanning: 30,
-  grouping: 10,
-  resolving: 40,
-  verifying: 10,
-  summarizing: 5
-};
-
-// Stage configurations
 export interface StageConfig {
   id: StageId;
   displayName: string;
@@ -263,116 +119,122 @@ export interface StageConfig {
   retryable: boolean;
 }
 
-export const STAGE_CONFIGS: Record<StageId, StageConfig> = {
-  initializing: {
-    id: 'initializing',
-    displayName: 'Initializing',
-    description: 'Setting up job environment and loading bookmarks',
-    weight: DEFAULT_STAGE_WEIGHTS.initializing,
-    canPause: true,
-    canCancel: true,
-    estimatedUnits: 1,
-    retryable: true
-  },
-  scanning: {
-    id: 'scanning',
-    displayName: 'Scanning',
-    description: 'Loading and analyzing bookmark metadata',
-    weight: DEFAULT_STAGE_WEIGHTS.scanning,
-    canPause: true,
-    canCancel: true,
-    estimatedUnits: 100, // per 100 bookmarks
-    retryable: true
-  },
-  grouping: {
-    id: 'grouping',
-    displayName: 'Grouping',
-    description: 'Organizing bookmarks by similarity',
-    weight: DEFAULT_STAGE_WEIGHTS.grouping,
-    canPause: true,
-    canCancel: true,
-    estimatedUnits: 10, // per group
-    retryable: true
-  },
-  resolving: {
-    id: 'resolving',
-    displayName: 'Resolving',
-    description: 'Processing duplicates and conflicts',
-    weight: DEFAULT_STAGE_WEIGHTS.resolving,
-    canPause: true,
-    canCancel: true,
-    estimatedUnits: 50, // per duplicate
-    retryable: true
-  },
-  verifying: {
-    id: 'verifying',
-    displayName: 'Verifying',
-    description: 'Validating sync conflicts and changes',
-    weight: DEFAULT_STAGE_WEIGHTS.verifying,
-    canPause: true,
-    canCancel: true,
-    estimatedUnits: 25, // per bookmark
-    retryable: true
-  },
-  summarizing: {
-    id: 'summarizing',
-    displayName: 'Summarizing',
-    description: 'Generating reports and finalizing changes',
-    weight: DEFAULT_STAGE_WEIGHTS.summarizing,
-    canPause: false,
-    canCancel: true,
-    estimatedUnits: 1,
-    retryable: false
-  }
-};
+export type StageConfigMap = Record<StageId, StageConfig>;
 
-// Utility functions
-export const calculateWeightedPercent = (
-  currentStage: StageId,
-  stageUnits: StageUnits,
-  weights: StageWeightMap = DEFAULT_STAGE_WEIGHTS
-): number => {
-  let totalPercent = 0;
-  let processedPercent = 0;
+export interface StageContext {
+  jobId: string;
+  stage: StageId;
+  processedUnits: number;
+  totalUnits: number;
+  abortController: AbortController | null;
+  progressCallback: (processed: number, total?: number | null) => void;
+  activityCallback: (
+    level: ActivityLevel,
+    message: string,
+    context?: Record<string, unknown>
+  ) => void;
+}
 
-  const stages = Object.keys(weights) as StageId[];
-  const currentIndex = stages.indexOf(currentStage);
+export interface StageResult {
+  completed: boolean;
+  processedUnits?: number;
+  totalUnits?: number;
+  summary?: Partial<JobSummary> | Record<string, unknown> | null;
+  error?: unknown;
+}
 
-  // Add completed stages
-  for (let i = 0; i < currentIndex; i++) {
-    totalPercent += weights[stages[i]];
-    processedPercent += weights[stages[i]];
-  }
+export interface StageExecutor {
+  prepare?(): Promise<void> | void;
+  execute(context: StageContext): Promise<StageResult>;
+  teardown?(): Promise<void> | void;
+  canPause?(): boolean;
+  canCancel?(): boolean;
+}
 
-  // Add current stage progress
-  if (stageUnits.total && stageUnits.total > 0) {
-    const stagePercent = (stageUnits.processed / stageUnits.total) * weights[currentStage];
-    processedPercent += stagePercent;
-  }
+export interface JobEvent {
+  type:
+    | 'jobStatus'
+    | 'stageProgress'
+    | 'jobActivity'
+    | 'jobCommand'
+    | 'jobQueue'
+    | 'jobConnected'
+    | 'jobDisconnected';
+  job?: JobSnapshot;
+  stage?: StageId;
+  processed?: number;
+  total?: number;
+  activity?: JobActivity;
+  queue?: JobQueueSummary;
+  command?: JobCommand;
+  payload?: Record<string, unknown>;
+  portName?: string;
+  senderId?: string;
+}
 
-  return Math.round((processedPercent / 100) * 100);
-};
+export interface StorageStats {
+  usedBytes: number;
+  availableBytes: number;
+  snapshotSize: number;
+  activitySize: number;
+  queueSize: number;
+  historySize: number;
+}
 
-export const getStageDisplayName = (stage: StageId): string => {
-  return STAGE_CONFIGS[stage].displayName;
-};
+export interface JobSystemStats {
+  initialized: boolean;
+  currentJob: JobSnapshot | null;
+  connectedPorts: number;
+  storageStats: StorageStats;
+  uptime: number;
+}
 
-export const getStageDescription = (stage: StageId): string => {
-  return STAGE_CONFIGS[stage].description;
-};
+export interface JobCommandResult {
+  success: boolean;
+  error?: string;
+  activity?: JobActivity[];
+  snapshot?: JobSnapshot | null;
+}
 
-export const isValidJobStatus = (status: string): status is JobStatus => {
-  const validStatuses: JobStatus[] = [
-    'idle', 'queued', 'running', 'paused', 
-    'cancelling', 'cancelled', 'failed', 'completed'
-  ];
-  return validStatuses.includes(status as JobStatus);
-};
+export interface JobStore {
+  loadSnapshot(): Promise<JobSnapshot | null>;
+  saveSnapshot(snapshot: JobSnapshot): Promise<void>;
+  appendActivity(entry: JobActivity): Promise<void>;
+  loadActivity(limit?: number): Promise<JobActivity[]>;
+  clear(jobId: string): Promise<void>;
+  saveQueue(queue: JobQueueSummary): Promise<void>;
+  loadQueue(): Promise<JobQueueSummary | null>;
+  clearSnapshot(): Promise<void>;
+  clearActivity(): Promise<void>;
+  getStorageStats(): Promise<StorageStats>;
+  cleanup(maxAgeDays?: number): Promise<number>;
+  addToHistory(jobId: string): Promise<void>;
+  getHistory(): Promise<QueueHistoryEntry[]>;
+  checkQuotaWarning(): Promise<{ warning: boolean; usage: number; quota: number }>;
+  migrateFromLegacy(): Promise<{ migrated: boolean; error?: string }>;
+  reset(): Promise<void>;
+}
 
-export const isValidStage = (stage: string): stage is StageId => {
-  const validStages: StageId[] = [
-    'initializing', 'scanning', 'grouping', 
-    'resolving', 'verifying', 'summarizing'
-  ];
-  return validStages.includes(stage as StageId);
-};
+export interface JobBus {
+  connect(name: string): chrome.runtime.Port | null;
+  disconnect(name: string): void;
+  publish(event: JobEvent): void;
+  subscribe(name: string, listener: (event: JobEvent) => void): () => void;
+  unsubscribe(name: string): void;
+  getStats(): { connectedPorts: number; subscriberCount: number; messageQueueSize: number; uptime: number };
+}
+
+export {
+  STAGE_ORDER,
+  JOB_STATUSES,
+  JOB_COMMANDS,
+  DEFAULT_STAGE_WEIGHTS,
+  STAGE_CONFIGS,
+  calculateWeightedPercent,
+  getStageDisplayName,
+  getStageDescription,
+  isValidJobStatus,
+  isValidStage,
+  createEmptyJobSummary,
+  isStageUnits
+} from './jobTypes.js';

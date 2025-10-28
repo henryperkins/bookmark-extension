@@ -193,7 +193,7 @@ async function runCleanup() {
 
       // Dedupe
       const { keep, dupes } = await dedupeNodes(leaves, openai, {
-        threshold: 0.85,
+        threshold: 0.90, // Align with README
         localOnly: cfg.deviceOnly,
         notifier,
         total,
@@ -308,8 +308,12 @@ chrome.runtime.onMessage.addListener((msg, _sender, reply) => {
           return;
 
         case "ACCEPT_MERGE": {
+          const entry = reviewQueue.find(x => x.id === msg.id);
           reviewQueue = reviewQueue.filter(x => x.id !== msg.id);
           await saveQueue();
+          if (entry?.id) {
+            try { await deleteBookmark(entry.id); } catch (e) { console.warn('Failed to delete accepted duplicate:', e); }
+          }
           safeReply(true);
           return;
         }
@@ -325,11 +329,14 @@ chrome.runtime.onMessage.addListener((msg, _sender, reply) => {
           return;
         }
 
-        case "ACCEPT_ALL":
+        case "ACCEPT_ALL": {
+          const entries = reviewQueue.slice();
           reviewQueue = [];
           await saveQueue();
+          await Promise.all(entries.map(e => deleteBookmark(e.id).catch(() => {})));
           safeReply(true);
           return;
+        }
 
         case "CREATE_BOOKMARK":
           safeReply(await addBookmark(msg.payload));

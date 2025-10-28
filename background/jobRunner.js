@@ -4,56 +4,34 @@
  */
 
 import {
-  JobStatus,
-  StageId,
-  JobCommand,
-  JobSnapshot,
-  JobActivity,
-  JobContext,
-  StageExecutor,
-  StageResult,
-  StageContext,
-  StageUnits,
-  ActivityLevel,
-  StageWeightMap,
   DEFAULT_STAGE_WEIGHTS,
+  STAGE_CONFIGS,
+  STAGE_ORDER,
   calculateWeightedPercent,
-  STAGE_CONFIGS
-} from '../../shared/jobTypes.js';
-import { JobBus } from './jobBus.js';
-import { JobStore } from './jobStore.js';
+  createEmptyJobSummary
+} from '../shared/jobTypes.js';
 
-export interface JobRunnerOptions {
-  maxRetries?: number;
-  retryDelay?: number;
-  stageWeights?: StageWeightMap;
-  autoPauseOnError?: boolean;
-}
+const DEFAULT_OPTIONS = {
+  maxRetries: 3,
+  retryDelay: 1000,
+  stageWeights: DEFAULT_STAGE_WEIGHTS,
+  autoPauseOnError: true
+};
 
 export class JobRunner {
-  private currentJob: JobSnapshot | null = null;
-  private abortController: AbortController | null = null;
-  private stageExecutors: Map<StageId, StageExecutor> = new Map();
-  private jobBus: JobBus;
-  private jobStore: JobStore;
-  private options: JobRunnerOptions;
-  private retryCount: Map<StageId, number> = new Map();
-  private subscribers: Set<() => void> = new Set();
-
-  constructor(jobBus: JobBus, jobStore: JobStore, options: JobRunnerOptions = {}) {
+  constructor(jobBus, jobStore, options = {}) {
+    this.currentJob = null;
+    this.abortController = null;
+    this.stageExecutors = new Map();
     this.jobBus = jobBus;
     this.jobStore = jobStore;
-    this.options = {
-      maxRetries: 3,
-      retryDelay: 1000,
-      stageWeights: DEFAULT_STAGE_WEIGHTS,
-      autoPauseOnError: true,
-      ...options
-    };
+    this.options = { ...DEFAULT_OPTIONS, ...options };
+    this.retryCount = new Map();
+    this.subscribers = new Set();
 
     // Subscribe to job bus events
     this.jobBus.subscribe('job-runner', (event) => {
-      if (event.type === 'jobStatus' && event.job?.jobId === this.currentJob?.jobId) {
+      if (event.type === 'jobStatus' && event.job?.jobId && this.currentJob && event.job.jobId === this.currentJob.jobId) {
         this.currentJob = event.job;
         this.notifySubscribers();
       }
@@ -63,64 +41,91 @@ export class JobRunner {
   /**
    * Register a stage executor for a specific stage
    */
-  registerStageExecutor(stage: StageId, executor: StageExecutor): void {
+  registerStageExecutor(stage, executor) {
     this.stageExecutors.set(stage, executor);
   }
 
   /**
    * Start a new job or resume an existing one
    */
-  async startJob(queueMeta?: { requestedBy: 'alarm' | 'popup' | 'manual'; schedule?: any }): Promise<string> {
-    const jobId = this.generateJobId();
+  async startJob(queueMeta = {}) {
+    const stages = Array.isArray(STAGE_ORDER) && STAGE_ORDER.length ? STAGE_ORDER : ['initializing', 'scanning', 'grouping', 'resolving', 'verifying', 'summarizing'];
+    const initialStage = stages[0];
     const now = new Date().toISOString();
 
     // Load existing snapshot if available
     const existingSnapshot = await this.jobStore.loadSnapshot();
     if (existingSnapshot && existingSnapshot.status === 'paused') {
-      // Resume existing job
+      const resumeStageIndex = typeof existingSnapshot.stageIndex === 'number' ? existingSnapshot.stageIndex : Math.max(stages.indexOf(existingSnapshot.stage), 0);
+      const resumeStage = stages[resumeStageIndex] || initialStage;
+
       this.currentJob = {
         ...existingSnapshot,
         status: 'queued',
+        stageIndex: resumeStageIndex,
+        stage: resumeStage,
+        timestamp: now,
+        activity: 'Job resumed',
         queueMeta: {
           ...existingSnapshot.queueMeta,
-          requestedBy: queueMeta?.requestedBy || 'manual',
-          requestedAt: now
+          requestedBy: queueMeta.requestedBy || existingSnapshot.queueMeta?.requestedBy || 'manual',
+          requestedAt: now,
+          schedule: queueMeta.schedule ?? existingSnapshot.queueMeta?.schedule ?? null
         }
       };
+
+      if (!this.currentJob.summary) {
+        this.currentJob.summary = createEmptyJobSummary();
+      }
+      if (!this.currentJob.createdAt) {
+        this.currentJob.createdAt = now;
+      }
     } else {
-      // Create new job
+      const jobId = this.generateJobId();
       this.currentJob = {
         jobId,
         status: 'queued',
-        stage: 'initializing',
+        stage: initialStage,
         stageIndex: 0,
-        stageUnits: { processed: 0, total: 1 },
+        stageUnits: { processed: 0, total: null },
         weightedPercent: 0,
         indeterminate: true,
         activity: 'Job queued',
         timestamp: now,
+        createdAt: now,
+        startedAt: null,
+        completedAt: null,
+        summary: createEmptyJobSummary(),
         queueMeta: {
-          requestedBy: queueMeta?.requestedBy || 'manual',
+          requestedBy: queueMeta.requestedBy || 'manual',
           requestedAt: now,
-          schedule: queueMeta?.schedule
+          schedule: queueMeta.schedule ?? null
         }
       };
     }
 
+    this.retryCount.clear();
+    this.abortController = null;
+
     await this.jobStore.saveSnapshot(this.currentJob);
     this.publishJobStatus();
-    this.addActivity('info', 'Job started', { jobId });
+    this.addActivity('info', 'Job queued', { jobId: this.currentJob.jobId });
 
     // Begin execution immediately
-    this.executeNext();
+    this.executeNext().catch((error) => {
+      console.error('Job execution failed:', error);
+      this.addActivity('error', 'Job execution failed', {
+        error: error instanceof Error ? error.message : String(error)
+      });
+    });
 
-    return jobId;
+    return this.currentJob.jobId;
   }
 
   /**
    * Handle job commands
    */
-  async handleCommand(command: JobCommand, payload?: Record<string, unknown>): Promise<{ success: boolean; error?: string }> {
+  async handleCommand(command, payload = {}) {
     if (!this.currentJob && command !== 'START_JOB') {
       return { success: false, error: 'No active job to control' };
     }
@@ -128,27 +133,19 @@ export class JobRunner {
     try {
       switch (command) {
         case 'START_JOB':
-          await this.startJob(payload?.queueMeta as any);
+          await this.startJob(payload.queueMeta || {});
           break;
 
         case 'PAUSE_JOB':
-          await this.pauseJob();
-          break;
-
-        case 'RESUME_JOB':
-          await this.resumeJob();
-          break;
-
-        case 'CANCEL_JOB':
-          await this.cancelJob();
           break;
 
         case 'GET_JOB_STATUS':
           return { success: true };
 
         case 'GET_ACTIVITY_LOG':
-          const activity = await this.jobStore.loadActivity(50);
-          return { success: true, ...payload, activity };
+          const activityLimit = typeof payload.limit === 'number' ? payload.limit : 50;
+          const activity = await this.jobStore.loadActivity(activityLimit);
+          return { success: true, activity };
 
         default:
           return { success: false, error: `Unknown command: ${command}` };
@@ -165,7 +162,7 @@ export class JobRunner {
   /**
    * Pause the current job
    */
-  private async pauseJob(): Promise<void> {
+  async pauseJob() {
     if (!this.currentJob || this.currentJob.status !== 'running') {
       throw new Error('Job is not running');
     }
@@ -187,7 +184,7 @@ export class JobRunner {
   /**
    * Resume a paused job
    */
-  private async resumeJob(): Promise<void> {
+  async resumeJob() {
     if (!this.currentJob || this.currentJob.status !== 'paused') {
       throw new Error('No paused job to resume');
     }
@@ -208,7 +205,7 @@ export class JobRunner {
   /**
    * Cancel the current job
    */
-  private async cancelJob(): Promise<void> {
+  async cancelJob() {
     if (!this.currentJob || ['cancelled', 'completed'].includes(this.currentJob.status)) {
       throw new Error('No active job to cancel');
     }
@@ -233,45 +230,50 @@ export class JobRunner {
   /**
    * Execute the next stage or resume current stage
    */
-  private async executeNext(): Promise<void> {
+  async executeNext() {
     if (!this.currentJob) return;
 
-    if (this.currentJob.status !== 'queued') return;
+    if (!['queued', 'running'].includes(this.currentJob.status)) {
+      return;
+    }
 
+    const stages = Array.isArray(STAGE_ORDER) && STAGE_ORDER.length ? STAGE_ORDER : ['initializing', 'scanning', 'grouping', 'resolving', 'verifying', 'summarizing'];
+    const currentStageIndex = this.currentJob.stageIndex || 0;
+
+    if (currentStageIndex >= stages.length) {
+      await this.finalizeJob('completed');
+      return;
+    }
+
+    const stage = stages[currentStageIndex];
+    const stageMeta = STAGE_CONFIGS[stage] || { displayName: stage };
+
+    this.currentJob.stage = stage;
     this.currentJob.status = 'running';
+    this.currentJob.stageUnits = this.currentJob.stageUnits || { processed: 0, total: null };
+    this.currentJob.stageUnits.processed = this.currentJob.stageUnits.processed || 0;
+    this.currentJob.indeterminate = true;
+    this.currentJob.activity = `Starting ${stageMeta.displayName} stage`;
+    this.currentJob.timestamp = new Date().toISOString();
+
     this.abortController = new AbortController();
 
-    const stages: StageId[] = ['initializing', 'scanning', 'grouping', 'resolving', 'verifying', 'summarizing'];
-    const currentStageIndex = this.currentJob.stageIndex;
-    const nextStageIndex = currentStageIndex + 1;
+    await this.jobStore.saveSnapshot(this.currentJob);
+    this.publishJobStatus();
 
-    if (nextStageIndex < stages.length) {
-      this.currentJob.stageIndex = nextStageIndex;
-      this.currentJob.stage = stages[nextStageIndex];
-      this.currentJob.stageUnits = { processed: 0, total: undefined };
-      this.currentJob.indeterminate = true;
-      this.currentJob.activity = `Starting ${STAGE_CONFIGS[this.currentJob.stage].displayName} stage`;
-      this.currentJob.timestamp = new Date().toISOString();
-
-      await this.jobStore.saveSnapshot(this.currentJob);
-      this.publishJobStatus();
-
-      // Begin execution
-      await this.executeCurrentStage();
-    } else {
-      // All stages complete
-      await this.finalizeJob('completed');
-    }
+    // Begin execution
+    await this.executeCurrentStage();
   }
 
   /**
    * Execute the current stage
    */
-  private async executeCurrentStage(): Promise<void> {
+  async executeCurrentStage() {
     if (!this.currentJob) return;
 
     const stage = this.currentJob.stage;
     const executor = this.stageExecutors.get(stage);
+    const stageMeta = STAGE_CONFIGS[stage] || { displayName: stage, retryable: true };
 
     if (!executor) {
       this.addActivity('error', `No executor registered for stage: ${stage}`);
@@ -280,22 +282,28 @@ export class JobRunner {
     }
 
     try {
-      this.addActivity('info', `Starting ${STAGE_CONFIGS[stage].displayName} stage`);
+      this.addActivity('info', `Starting ${stageMeta.displayName} stage`);
+
+      if (!this.currentJob.startedAt) {
+        this.currentJob.startedAt = new Date().toISOString();
+      }
 
       // Prepare stage
-      await executor.prepare();
+      if (typeof executor.prepare === 'function') {
+        await executor.prepare();
+      }
 
       // Create stage context
-      const stageContext: StageContext = {
+      const stageContext = {
         jobId: this.currentJob.jobId,
         stage,
         processedUnits: this.currentJob.stageUnits.processed,
         totalUnits: this.currentJob.stageUnits.total || 0,
-        abortController: this.abortController!,
-        progressCallback: (processed: number, total?: number) => {
+        abortController: this.abortController,
+        progressCallback: (processed, total) => {
           this.updateStageProgress(processed, total);
         },
-        activityCallback: (level: ActivityLevel, message: string, context?: Record<string, unknown>) => {
+        activityCallback: (level, message, context) => {
           this.addActivity(level, message, context);
         }
       };
@@ -304,66 +312,77 @@ export class JobRunner {
       const result = await executor.execute(stageContext);
 
       // Complete stage
-      await executor.teardown();
+      if (typeof executor.teardown === 'function') {
+        await executor.teardown();
+      }
 
       if (result.completed) {
-        this.addActivity('info', `Completed ${STAGE_CONFIGS[stage].displayName} stage`);
+        this.addActivity('info', `Completed ${stageMeta.displayName} stage`);
         await this.completeStage(result);
       } else {
         await this.handleStageError(stage, result.error || new Error('Stage execution incomplete'));
       }
 
     } catch (error) {
-      this.addActivity('error', `Error in ${STAGE_CONFIGS[stage].displayName} stage`, { 
+      this.addActivity('error', `Error in ${stageMeta.displayName} stage`, { 
         error: error instanceof Error ? error.message : 'Unknown error' 
       });
-      await this.handleStageError(stage, error as Error);
+      await this.handleStageError(stage, error);
     }
   }
 
   /**
    * Handle stage errors with retry logic
    */
-  private async handleStageError(stage: StageId, error: Error): Promise<void> {
+  async handleStageError(stage, error) {
     if (!this.currentJob) return;
 
-    const stageConfig = STAGE_CONFIGS[stage];
+    const stageConfig = STAGE_CONFIGS[stage] || { displayName: stage, retryable: false };
     const currentRetries = this.retryCount.get(stage) || 0;
 
-    if (stageConfig.retryable && currentRetries < (this.options.maxRetries || 3)) {
+    const maxRetries = Number.isFinite(this.options.maxRetries) ? this.options.maxRetries : DEFAULT_OPTIONS.maxRetries;
+
+    if (stageConfig.retryable && currentRetries < maxRetries) {
       this.retryCount.set(stage, currentRetries + 1);
-      
-      this.addActivity('warn', `Retrying ${STAGE_CONFIGS[stage].displayName} stage (${currentRetries + 1}/${this.options.maxRetries})`);
-      
-      // Wait before retry
-      await new Promise(resolve => setTimeout(resolve, this.options.retryDelay));
-      
-      // Retry execution
-      this.executeCurrentStage();
+
+      this.addActivity('warn', `Retrying ${stageConfig.displayName} stage (${currentRetries + 1}/${maxRetries})`);
+
+      const retryDelay = Number.isFinite(this.options.retryDelay) ? this.options.retryDelay : DEFAULT_OPTIONS.retryDelay;
+      await new Promise((resolve) => setTimeout(resolve, retryDelay));
+
+      this.executeCurrentStage().catch((err) => {
+        console.error('Retry execution failed:', err);
+      });
     } else {
       // Max retries reached or stage not retryable
+      const message = error instanceof Error ? error.message : String(error || 'Unknown error');
       this.currentJob.status = this.options.autoPauseOnError ? 'paused' : 'failed';
-      this.currentJob.error = error.message;
-      this.currentJob.activity = `Stage failed: ${STAGE_CONFIGS[stage].displayName}`;
+      this.currentJob.error = message;
+      this.currentJob.activity = `Stage failed: ${stageConfig.displayName}`;
       this.currentJob.timestamp = new Date().toISOString();
 
       await this.jobStore.saveSnapshot(this.currentJob);
       this.publishJobStatus();
 
-      this.addActivity('error', `${STAGE_CONFIGS[stage].displayName} stage failed permanently`, { 
-        error: error.message,
+      this.addActivity('error', `${stageConfig.displayName} stage failed permanently`, { 
+        error: message,
         retries: currentRetries
       });
+
+      this.retryCount.delete(stage);
     }
   }
 
   /**
    * Update stage progress
    */
-  private updateStageProgress(processed: number, total?: number): void {
+  updateStageProgress(processed, total) {
     if (!this.currentJob) return;
 
-    const stageUnits: StageUnits = { processed, total };
+    const stageUnits = {
+      processed: typeof processed === 'number' ? processed : 0,
+      total: typeof total === 'number' ? total : null
+    };
     const weightedPercent = calculateWeightedPercent(this.currentJob.stage, stageUnits, this.options.stageWeights);
 
     this.currentJob.stageUnits = stageUnits;
@@ -387,13 +406,13 @@ export class JobRunner {
   /**
    * Complete current stage and move to next
    */
-  private async completeStage(result: StageResult): Promise<void> {
+  async completeStage(result) {
     if (!this.currentJob) return;
 
     // Update final stage progress
     this.currentJob.stageUnits = {
-      processed: result.processedUnits,
-      total: result.totalUnits
+      processed: typeof result.processedUnits === 'number' ? result.processedUnits : this.currentJob.stageUnits.processed,
+      total: typeof result.totalUnits === 'number' ? result.totalUnits : this.currentJob.stageUnits.total
     };
     this.currentJob.weightedPercent = calculateWeightedPercent(
       this.currentJob.stage, 
@@ -401,43 +420,51 @@ export class JobRunner {
       this.options.stageWeights
     );
 
+    if (result.summary && typeof result.summary === 'object') {
+      this.currentJob.summary = {
+        ...(this.currentJob.summary || createEmptyJobSummary()),
+        ...result.summary
+      };
+    }
+
+    this.retryCount.delete(this.currentJob.stage);
+
     await this.jobStore.saveSnapshot(this.currentJob);
     this.publishJobStatus();
 
     // Move to next stage
+    this.currentJob.stageIndex = (this.currentJob.stageIndex || 0) + 1;
     await this.executeNext();
   }
 
   /**
    * Finalize job with completion summary
    */
-  private async finalizeJob(status: 'completed' | 'cancelled' | 'failed'): Promise<void> {
+  async finalizeJob(status) {
     if (!this.currentJob) return;
 
     const now = new Date().toISOString();
-    const startTime = new Date(this.currentJob.timestamp).getTime();
+    const startedAtValue = this.currentJob.startedAt || this.currentJob.createdAt || now;
+    const startTime = new Date(startedAtValue).getTime();
     const endTime = new Date(now).getTime();
-    const runtimeMs = endTime - startTime;
+    const runtimeMs = Math.max(0, endTime - startTime);
 
     this.currentJob.status = status;
     this.currentJob.activity = `Job ${status}`;
     this.currentJob.timestamp = now;
+    this.currentJob.completedAt = status === 'completed' ? now : this.currentJob.completedAt || null;
     this.currentJob.weightedPercent = status === 'completed' ? 100 : this.currentJob.weightedPercent;
+    this.currentJob.indeterminate = false;
 
     // Generate summary if completed
     if (status === 'completed') {
-      this.currentJob.summary = {
-        totalBookmarks: 0, // Will be populated by stages
-        duplicatesFound: 0,
-        duplicatesResolved: 0,
-        conflictsDetected: 0,
-        conflictsResolved: 0,
-        autoApplied: false,
+      const summary = {
+        ...(this.currentJob.summary || createEmptyJobSummary()),
         runtimeMs,
-        startedAt: this.currentJob.timestamp,
-        completedAt: now,
-        reviewQueueSize: 0
+        startedAt: startedAtValue,
+        completedAt: now
       };
+      this.currentJob.summary = summary;
     }
 
     await this.jobStore.saveSnapshot(this.currentJob);
@@ -458,10 +485,10 @@ export class JobRunner {
   /**
    * Add activity log entry
    */
-  private addActivity(level: ActivityLevel, message: string, context?: Record<string, unknown>): void {
+  addActivity(level, message, context) {
     if (!this.currentJob) return;
 
-    const activity: JobActivity = {
+    const activity = {
       jobId: this.currentJob.jobId,
       timestamp: new Date().toISOString(),
       level,
@@ -487,7 +514,7 @@ export class JobRunner {
   /**
    * Publish job status update
    */
-  private publishJobStatus(): void {
+  publishJobStatus() {
     if (!this.currentJob) return;
 
     this.jobBus.publish({
@@ -501,7 +528,7 @@ export class JobRunner {
   /**
    * Subscribe to job runner updates
    */
-  subscribe(listener: () => void): () => void {
+  subscribe(listener) {
     this.subscribers.add(listener);
     return () => this.subscribers.delete(listener);
   }
@@ -509,7 +536,7 @@ export class JobRunner {
   /**
    * Notify all subscribers
    */
-  private notifySubscribers(): void {
+  notifySubscribers() {
     this.subscribers.forEach(listener => {
       try {
         listener();
@@ -522,21 +549,21 @@ export class JobRunner {
   /**
    * Get current job snapshot
    */
-  getCurrentJob(): JobSnapshot | null {
+  getCurrentJob() {
     return this.currentJob;
   }
 
   /**
    * Generate unique job ID
    */
-  private generateJobId(): string {
+  generateJobId() {
     return `job_${Date.now()}_${Math.random().toString(36).substr(2, 9)}`;
   }
 
   /**
    * Debounced save to prevent excessive storage writes
    */
-  private debouncedSave = this.debounce(async () => {
+  debouncedSave = this.debounce(async () => {
     if (this.currentJob) {
       await this.jobStore.saveSnapshot(this.currentJob);
     }
@@ -545,18 +572,18 @@ export class JobRunner {
   /**
    * Simple debounce utility
    */
-  private debounce<T extends (...args: any[]) => any>(func: T, wait: number): T {
-    let timeout: NodeJS.Timeout | null = null;
-    return ((...args: any[]) => {
+  debounce(func, wait) {
+    let timeout = null;
+    return (...args) => {
       if (timeout) clearTimeout(timeout);
       timeout = setTimeout(() => func.apply(this, args), wait);
-    }) as T;
+    };
   }
 
   /**
    * Initialize job runner with stored state
    */
-  async initialize(): Promise<void> {
+  async initialize() {
     // Load existing job snapshot
     const snapshot = await this.jobStore.loadSnapshot();
     if (snapshot) {
