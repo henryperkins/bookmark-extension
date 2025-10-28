@@ -1,3 +1,5 @@
+import { normalizeUrlForKey } from "./url.js";
+
 function serializeVector(vec) {
   return Array.from(vec);
 }
@@ -109,6 +111,28 @@ export class StorageManager {
         await chrome.storage[area].set({ vectors });
       } catch (e) {
         console.warn(`Failed to update ${area} vectors after delete:`, e);
+      }
+    }));
+  }
+
+  async deleteVectorByNormalized(normalizedUrl) {
+    if (!normalizedUrl) return;
+    await Promise.all(['sync', 'local'].map(async (area) => {
+      const { vectors } = await chrome.storage[area].get('vectors');
+      if (!vectors) return;
+      let changed = false;
+      for (const key of Object.keys(vectors)) {
+        if (normalizeUrlForKey(key) === normalizedUrl) {
+          delete vectors[key];
+          changed = true;
+        }
+      }
+      if (changed) {
+        try {
+          await chrome.storage[area].set({ vectors });
+        } catch (e) {
+          console.warn(`Failed to update ${area} vectors after normalized delete:`, e);
+        }
       }
     }));
   }

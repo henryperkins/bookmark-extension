@@ -191,6 +191,25 @@ export async function importHtml(html, parentId) {
 
   // Track seen normalized URLs to prevent duplicates within the same import session
   const seenUrls = new Set();
+  await seedExistingUrls(seenUrls);
+
+  async function seedExistingUrls(target) {
+    if (!chrome?.storage?.local?.get) return;
+    try {
+      const { urlIndex } = await chrome.storage.local.get('urlIndex');
+      if (!urlIndex || typeof urlIndex !== 'object') return;
+      for (const [normalized, ids] of Object.entries(urlIndex)) {
+        if (!normalized) continue;
+        if (Array.isArray(ids)) {
+          if (ids.length > 0) target.add(normalized);
+        } else if (ids) {
+          target.add(normalized);
+        }
+      }
+    } catch (error) {
+      console.warn('Failed to hydrate import dedupe cache from urlIndex:', error);
+    }
+  }
 
   /**
    * Recursively create bookmarks and folders

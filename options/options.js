@@ -2,6 +2,7 @@ const form = document.getElementById('cfg');
 const runNow = document.getElementById('runNow');
 const testConnectionBtn = document.getElementById('testConnection');
 const testResult = document.getElementById('testResult');
+const scrapingNotice = document.getElementById('scrapingNotice');
 const ALL_URLS_PERMISSION = { origins: ['<all_urls>'] };
 
 function recordLastError(context, ignoreClosedPort = true) {
@@ -14,23 +15,44 @@ function recordLastError(context, ignoreClosedPort = true) {
   return err;
 }
 
+function setScrapingNotice(message = '') {
+  if (!scrapingNotice) return;
+  const messageSpan = scrapingNotice.querySelector('[data-message]');
+  if (!message) {
+    scrapingNotice.hidden = true;
+    if (messageSpan) {
+      messageSpan.textContent = '';
+    }
+    return;
+  }
+  if (messageSpan) {
+    messageSpan.textContent = message;
+  }
+  scrapingNotice.hidden = false;
+}
+
 async function ensureScrapingToggleMatchesPermissions(storedValue) {
   try {
     const hasPermission = await chrome.permissions.contains(ALL_URLS_PERMISSION);
 
     if (storedValue === undefined) {
-      form.scraping.checked = hasPermission ? true : form.scraping.checked;
+      form.scraping.checked = !!hasPermission;
+      setScrapingNotice(hasPermission ? '' : 'Toggle “Enable page scraping” to request the required permission.');
       return;
     }
 
     if (storedValue && !hasPermission) {
-      console.warn('Scraping permission missing; disabling toggle until granted.');
       form.scraping.checked = false;
+      setScrapingNotice('Grant the optional permission to turn scraping back on.');
     } else if (!storedValue && hasPermission) {
       await chrome.permissions.remove(ALL_URLS_PERMISSION);
+      setScrapingNotice('');
+    } else {
+      setScrapingNotice('');
     }
   } catch (error) {
     console.warn('Failed to inspect optional permissions:', error);
+    setScrapingNotice('We could not verify the optional permission. Toggle scraping again to retry.');
   }
 }
 
@@ -41,17 +63,23 @@ async function handleScrapingToggleChange() {
       if (!granted) {
         form.scraping.checked = false;
         alert('Enable scraping requires the optional <all_urls> permission.');
+        setScrapingNotice('Permission was declined, so scraping stays off. Toggle again if you change your mind.');
+      } else {
+        setScrapingNotice('');
       }
     } catch (error) {
       form.scraping.checked = false;
       console.warn('Permission request failed:', error);
       alert('Could not request the optional permission. Scraping remains disabled.');
+      setScrapingNotice('We could not request the optional permission. Scraping stays off.');
     }
   } else {
     try {
       await chrome.permissions.remove(ALL_URLS_PERMISSION);
+      setScrapingNotice('');
     } catch (error) {
       console.warn('Failed to remove optional permission:', error);
+      setScrapingNotice('We could not remove the optional permission. Scraping may still be on.');
     }
   }
 }

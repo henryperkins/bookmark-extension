@@ -9,6 +9,7 @@ import { writeTags } from "../writer.js";
 import { getPageText } from "../scraper.js";
 
 const URL_INDEX_KEY = "urlIndex";
+const URL_INDEX_ID_KEY = "urlIndexById";
 export const IMPORT_PAYLOAD_PREFIX = "importPayload_";
 const IMPORT_STATE_PREFIX = "importState_";
 export const ENRICH_PAYLOAD_PREFIX = "enrichPayload_";
@@ -56,19 +57,121 @@ async function loadJobMeta(jobId) {
   return meta;
 }
 
-async function getUrlIndex() {
-  const result = await chrome.storage.local.get(URL_INDEX_KEY);
-  const idx = result[URL_INDEX_KEY];
-  if (idx && typeof idx === "object") return { ...idx };
-  return {};
+async function getUrlIndex(allowRetry = true) {
+  const result = await chrome.storage.local.get([URL_INDEX_KEY, URL_INDEX_ID_KEY]);
+  const rawIndex = result[URL_INDEX_KEY];
+  const rawIdIndex = result[URL_INDEX_ID_KEY];
+
+  let needsRebuild = false;
+
+  const index = {};
+  if (rawIndex && typeof rawIndex === "object" && !Array.isArray(rawIndex)) {
+    for (const [key, value] of Object.entries(rawIndex)) {
+      if (!value) continue;
+      if (Array.isArray(value)) {
+        const filtered = value.filter((id) => typeof id === "string" && id);
+        if (filtered.length) {
+          index[key] = Array.from(new Set(filtered));
+        } else {
+          index[key] = [];
+        }
+      } else {
+        needsRebuild = true;
+        break;
+      }
+    }
+  } else if (rawIndex && typeof rawIndex !== "object") {
+    needsRebuild = true;
+  }
+
+  const idIndex = {};
+  if (!needsRebuild) {
+    if (rawIdIndex && typeof rawIdIndex === "object" && !Array.isArray(rawIdIndex)) {
+      for (const [id, normalized] of Object.entries(rawIdIndex)) {
+        if (typeof id === "string" && typeof normalized === "string" && normalized) {
+          idIndex[id] = normalized;
+        }
+      }
+    } else if (rawIdIndex != null && typeof rawIdIndex !== "object") {
+      needsRebuild = true;
+    }
+  }
+
+  if (needsRebuild && allowRetry) {
+    await rebuildUrlIndex();
+    return getUrlIndex(false);
+  }
+
+  return { index, idIndex };
 }
 
-async function setUrlIndex(index) {
+function removeIdFromList(list, id) {
+  if (!Array.isArray(list)) return [];
+  return list.filter((entry) => entry !== id);
+}
+
+async function setUrlIndex(index, idIndex) {
   try {
-    await chrome.storage.local.set({ [URL_INDEX_KEY]: index });
+    await chrome.storage.local.set({
+      [URL_INDEX_KEY]: index,
+      [URL_INDEX_ID_KEY]: idIndex
+    });
   } catch (error) {
     console.warn("Failed to persist URL index:", error);
   }
+}
+
+function purgeNodeFromIndex(index, idIndex, node) {
+  let changed = false;
+
+  const visit = (current) => {
+    if (!current) return;
+
+    const bookmarkId = current.id;
+    if (bookmarkId && idIndex[bookmarkId]) {
+      const normalized = idIndex[bookmarkId];
+      if (normalized) {
+        if (Array.isArray(index[normalized])) {
+          const next = removeIdFromList(index[normalized], bookmarkId);
+          if (next.length) {
+            index[normalized] = next;
+          } else {
+            delete index[normalized];
+          }
+        } else if (index[normalized]) {
+          delete index[normalized];
+        }
+      }
+      delete idIndex[bookmarkId];
+      changed = true;
+    }
+
+    if (current.url) {
+      const normalizedUrl = normalizeUrlForKey(current.url);
+      if (normalizedUrl) {
+        const existing = index[normalizedUrl];
+        if (Array.isArray(existing)) {
+          const next = removeIdFromList(existing, bookmarkId);
+          if (next.length) {
+            index[normalizedUrl] = next;
+          } else {
+            delete index[normalizedUrl];
+          }
+          changed = true;
+        } else if (existing) {
+          delete index[normalizedUrl];
+          changed = true;
+        }
+      }
+    }
+
+    if (Array.isArray(current.children)) {
+      current.children.forEach(visit);
+    }
+  };
+
+  visit(node);
+  return changed;
 }
 
 function collectOperations(tree, options) {
@@ -110,7 +213,8 @@ function collectOperations(tree, options) {
         stats.invalid = (stats.invalid || 0) + 1;
         continue;
       }
-      if (seenUrls.has(normalized) || existingIndex[normalized]) {
+      const existing = existingIndex[normalized];
+      if (seenUrls.has(normalized) || (Array.isArray(existing) ? existing.length > 0 : Boolean(existing))) {
         stats.duplicates = (stats.duplicates || 0) + 1;
         continue;
       }
@@ -145,11 +249,18 @@ export async function rebuildUrlIndex() {
   try {
     const roots = await chrome.bookmarks.getTree();
     const index = {};
+    const idIndex = {};
     const walk = (node) => {
       if (node.url) {
         const normalized = normalizeUrlForKey(node.url);
         if (normalized) {
-          index[normalized] = true;
+          if (!Array.isArray(index[normalized])) {
+            index[normalized] = [];
+          }
+          if (!index[normalized].includes(node.id)) {
+            index[normalized].push(node.id);
+          }
+          idIndex[node.id] = normalized;
         }
       }
       if (Array.isArray(node.children)) {
@@ -157,10 +268,14 @@ export async function rebuildUrlIndex() {
       }
     };
     roots.forEach(walk);
-    await setUrlIndex(index);
+    await setUrlIndex(index, idIndex);
   } catch (error) {
     console.warn("Failed to rebuild URL index:", error);
   }
+}
+
+export async function ensureUrlIndexIntegrity() {
+  await getUrlIndex();
 }
 
 export function wireUrlIndexListeners() {
@@ -169,37 +284,91 @@ export function wireUrlIndexListeners() {
 
   chrome.bookmarks.onCreated.addListener(async (_id, node) => {
     if (!node?.url) return;
-    const index = await getUrlIndex();
+    const { index, idIndex } = await getUrlIndex();
     const normalized = normalizeUrlForKey(node.url);
     if (normalized) {
-      index[normalized] = true;
-      await setUrlIndex(index);
+      let changed = false;
+      if (!Array.isArray(index[normalized])) {
+        index[normalized] = [];
+        changed = true;
+      }
+      if (!index[normalized].includes(node.id)) {
+        index[normalized] = [...index[normalized], node.id];
+        changed = true;
+      }
+      if (idIndex[node.id] !== normalized) {
+        idIndex[node.id] = normalized;
+        changed = true;
+      }
+      if (changed) {
+        await setUrlIndex(index, idIndex);
+      }
     }
   });
 
-  chrome.bookmarks.onRemoved.addListener(async (_id, info) => {
-    const url = info?.node?.url;
-    if (!url) return;
-    const index = await getUrlIndex();
-    const normalized = normalizeUrlForKey(url);
-    if (normalized && index[normalized]) {
-      delete index[normalized];
-      await setUrlIndex(index);
+  chrome.bookmarks.onRemoved.addListener(async (id, info) => {
+    const { index, idIndex } = await getUrlIndex();
+    let changed = false;
+
+    if (info?.node) {
+      changed = purgeNodeFromIndex(index, idIndex, info.node);
+    }
+
+    if (!changed && id) {
+      changed = purgeNodeFromIndex(index, idIndex, { id });
+    }
+
+    if (changed) {
+      await setUrlIndex(index, idIndex);
+    } else {
+      await rebuildUrlIndex();
     }
   });
 
   chrome.bookmarks.onChanged.addListener(async (id, changeInfo) => {
-    if (!changeInfo?.url) {
-      // Fallback to rebuilding if URL changed but not provided.
-      await rebuildUrlIndex();
+    if (typeof changeInfo?.url !== "string") {
       return;
     }
 
-    const index = await getUrlIndex();
+    const { index, idIndex } = await getUrlIndex();
+
+    let changed = false;
+
+    const previous = idIndex[id];
+    if (previous && Array.isArray(index[previous])) {
+      const next = removeIdFromList(index[previous], id);
+      if (next.length) {
+        index[previous] = next;
+      } else {
+        delete index[previous];
+      }
+      changed = true;
+    } else if (previous) {
+      delete index[previous];
+      changed = true;
+    }
+
     const normalized = normalizeUrlForKey(changeInfo.url);
     if (normalized) {
-      index[normalized] = true;
-      await setUrlIndex(index);
+      if (!Array.isArray(index[normalized])) {
+        index[normalized] = [];
+        changed = true;
+      }
+      if (!index[normalized].includes(id)) {
+        index[normalized].push(id);
+        changed = true;
+      }
+      if (idIndex[id] !== normalized) {
+        idIndex[id] = normalized;
+        changed = true;
+      }
+    } else if (idIndex[id]) {
+      delete idIndex[id];
+      changed = true;
+    }
+
+    if (changed) {
+      await setUrlIndex(index, idIndex);
     }
   });
 }
@@ -278,7 +447,7 @@ async function runImportScanning(ctx) {
 
   const html = payload.html || "";
   const parsed = parseBookmarks(html);
-  const index = await getUrlIndex();
+  const { index: existingIndex } = await getUrlIndex();
   const seen = new Set();
 
   const state = ensureImportStateDefaults(await loadImportState(ctx.jobId), payload.parentId || "1");
@@ -296,7 +465,7 @@ async function runImportScanning(ctx) {
 
   const collectorOptions = {
     parentRef: null,
-    existingIndex: index,
+    existingIndex,
     seenUrls: seen,
     stats: state.stats,
     nextIndex: { value: 0 }
@@ -343,7 +512,7 @@ async function runImportResolving(ctx) {
 
   const total = state.operations.length;
   const limiter = createRateLimiter(8);
-  let index = await getUrlIndex();
+  let { index, idIndex } = await getUrlIndex();
   const BATCH_SIZE = 300;
 
   while (state.cursor < total) {
@@ -378,7 +547,13 @@ async function runImportResolving(ctx) {
           if (created?.url) {
             const normalized = normalizeUrlForKey(created.url);
             if (normalized) {
-              index[normalized] = true;
+              if (!Array.isArray(index[normalized])) {
+                index[normalized] = [];
+              }
+              if (!index[normalized].includes(created.id)) {
+                index[normalized].push(created.id);
+              }
+              idIndex[created.id] = normalized;
             }
           }
 
@@ -393,7 +568,7 @@ async function runImportResolving(ctx) {
     state.cursor = batchEnd;
     ctx.progressCallback(state.cursor, total);
     await saveImportState(ctx.jobId, state);
-    await setUrlIndex(index);
+    await setUrlIndex(index, idIndex);
     await sleep(0);
   }
 

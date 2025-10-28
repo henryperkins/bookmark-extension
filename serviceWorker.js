@@ -12,13 +12,14 @@ import { suggestFolders } from "./utils/folderOrganizer.js";
 import { SyncManager } from "./utils/syncManager.js";
 import { makePairKey, normalizeUrlForKey } from "./utils/url.js";
 import { initializeJobSystem, JobSystemCommands } from "./background/jobSystem.js";
-import { registerImportJobStages, wireUrlIndexListeners, rebuildUrlIndex, JOB_META_PREFIX, IMPORT_PAYLOAD_PREFIX, ENRICH_PAYLOAD_PREFIX } from "./background/importStages.js";
+import { registerImportJobStages, wireUrlIndexListeners, rebuildUrlIndex, ensureUrlIndexIntegrity, JOB_META_PREFIX, IMPORT_PAYLOAD_PREFIX, ENRICH_PAYLOAD_PREFIX } from "./background/importStages.js";
 
 let reviewQueue = [];
 let ignorePairsCache = null;
 let cleanupTask = null;
 let importInProgress = false;
 const storageManager = new StorageManager();
+const bookmarkUrlCache = new Map();
 
 const IGNORE_STORAGE_KEY = "ignoredDuplicates";
 
@@ -30,9 +31,24 @@ const IGNORE_STORAGE_KEY = "ignoredDuplicates";
     const { urlIndex: existingIndex } = await chrome.storage.local.get("urlIndex");
     if (!existingIndex) {
       await rebuildUrlIndex();
+    } else {
+      await ensureUrlIndexIntegrity();
     }
   } catch (error) {
     console.warn("Job system bootstrap failed:", error);
+  }
+})();
+
+(async () => {
+  try {
+    const roots = await chrome.bookmarks.getTree();
+    const record = (node) => {
+      if (node.url) bookmarkUrlCache.set(node.id, node.url);
+      (node.children || []).forEach(record);
+    };
+    roots.forEach(record);
+  } catch (error) {
+    console.warn("Failed to hydrate bookmark URL cache:", error);
   }
 })();
 
@@ -89,7 +105,12 @@ async function isDuplicateUrl(url) {
   const normalized = normalizeUrlForKey(url);
   if (!normalized) return false;
   const { urlIndex } = await chrome.storage.local.get("urlIndex");
-  return Boolean(urlIndex && urlIndex[normalized]);
+  const entry = urlIndex && urlIndex[normalized];
+  if (!entry) return false;
+  if (Array.isArray(entry)) {
+    return entry.length > 0;
+  }
+  return Boolean(entry);
 }
 
 function shouldQueueImport(html) {
@@ -537,15 +558,46 @@ chrome.runtime.onMessage.addListener((msg, _sender, reply) => {
   return true;
 });
 
-chrome.bookmarks.onRemoved.addListener(async (_id, removeInfo) => {
-  const url = removeInfo?.node?.url;
-  if (!url) return;
-  await storageManager.deleteVector(url);
-  await removeIgnoredPairsForUrl(url);
+chrome.bookmarks.onCreated.addListener((_id, node) => {
+  if (!node?.id) return;
+  if (node.url) {
+    bookmarkUrlCache.set(node.id, node.url);
+  } else {
+    bookmarkUrlCache.delete(node.id);
+  }
 });
 
-chrome.bookmarks.onChanged.addListener(async (_id, changeInfo) => {
+chrome.bookmarks.onRemoved.addListener(async (_id, removeInfo) => {
+  const urls = new Set();
+
+  const purge = (node) => {
+    if (!node) return;
+    if (node.id) bookmarkUrlCache.delete(node.id);
+    if (node.url) urls.add(node.url);
+    (node.children || []).forEach(purge);
+  };
+
+  if (removeInfo?.node) {
+    purge(removeInfo.node);
+  } else if (removeInfo?.parentId) {
+    bookmarkUrlCache.delete(removeInfo.parentId);
+  }
+
+  for (const url of urls) {
+    await storageManager.deleteVector(url);
+    await storageManager.deleteVectorByNormalized(normalizeUrlForKey(url));
+    await removeIgnoredPairsForUrl(url);
+  }
+});
+
+chrome.bookmarks.onChanged.addListener(async (id, changeInfo) => {
   if (changeInfo?.url) {
+    const previousUrl = bookmarkUrlCache.get(id);
+    if (previousUrl && previousUrl !== changeInfo.url) {
+      await storageManager.deleteVector(previousUrl);
+      await storageManager.deleteVectorByNormalized(normalizeUrlForKey(previousUrl));
+    }
+    bookmarkUrlCache.set(id, changeInfo.url);
     await storageManager.deleteVector(changeInfo.url);
   }
 });
@@ -569,6 +621,17 @@ chrome.bookmarks.onImportEnded.addListener(async () => {
   }
   reviewQueue = [];
   await saveQueue();
+  bookmarkUrlCache.clear();
+  try {
+    const nodes = await chrome.bookmarks.getTree();
+    const record = (node) => {
+      if (node.url) bookmarkUrlCache.set(node.id, node.url);
+      (node.children || []).forEach(record);
+    };
+    nodes.forEach(record);
+  } catch (error) {
+    console.warn("Failed to rebuild bookmark URL cache after import:", error);
+  }
 });
 
 chrome.commands?.onCommand.addListener(async (command) => {
