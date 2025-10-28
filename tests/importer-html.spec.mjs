@@ -1,11 +1,6 @@
 import { test } from 'node:test';
 import assert from 'node:assert/strict';
-import path from 'node:path';
-import { readFile } from 'node:fs/promises';
-import { fileURLToPath } from 'node:url';
-
-const __filename = fileURLToPath(import.meta.url);
-const __dirname = path.dirname(__filename);
+import { safariHtml, edgeHtml } from './fixtures/bookmarkExports.mjs';
 
 let activeCapture = null;
 
@@ -26,9 +21,7 @@ globalThis.chrome = {
 
 const { importHtml } = await import('../importer.js');
 
-async function captureImport(filename, parentId) {
-  const absolutePath = path.join(__dirname, '..', filename);
-  const html = await readFile(absolutePath, 'utf8');
+async function captureImport(html, parentId) {
   activeCapture = [];
   await importHtml(html, parentId);
   const captured = activeCapture;
@@ -37,14 +30,14 @@ async function captureImport(filename, parentId) {
 }
 
 test('imports Safari and Edge bookmark exports', async () => {
-  const safari = await captureImport('Bookmarks.html', 'safariParent');
+  const safari = await captureImport(safariHtml, 'safariParent');
   assert.ok(safari.length > 100, 'Safari export should yield a sizable bookmark set');
   assert.ok(safari.every(entry => entry.parentId === 'safariParent' || safari.some(f => f.id === entry.parentId)));
   assert.ok(safari.some(entry => entry.url === 'https://console.firebase.google.com/u/0/'));
   assert.ok(safari.some(entry => entry.title.includes('Google User Experience Research')));
   assert.ok(safari.every(entry => typeof entry.title === 'string' && entry.title.trim().length > 0));
 
-  const edge = await captureImport('favorites_10_28_25.html', 'edgeParent');
+  const edge = await captureImport(edgeHtml, 'edgeParent');
   assert.ok(edge.length > 100, 'Edge export should yield a sizable bookmark set');
   assert.ok(edge.every(entry => entry.parentId === 'edgeParent' || edge.some(f => f.id === entry.parentId)));
   assert.ok(edge.some(entry => entry.url?.startsWith('https://webapp4.asu.edu/myasu')));
