@@ -1,0 +1,601 @@
+/**
+ * Job Store - Persistence Layer
+ * Handles durable storage of job state, activity logs, and queue data
+ * Implements quota-aware operations and migration support
+ */
+
+import {
+  JobSnapshot,
+  JobActivity,
+  JobQueueSummary,
+  JobStore as IJobStore,
+  ActivityLevel
+} from '../../shared/jobTypes.js';
+
+export interface JobStoreOptions {
+  maxActivityEntries?: number;
+  maxQueueHistory?: number;
+  debounceDelay?: number;
+  retryAttempts?: number;
+  retryDelay?: number;
+  enableCompression?: boolean;
+}
+
+export class JobStore implements IJobStore {
+  private options: JobStoreOptions;
+  private saveQueue: Map<string, number> = new Map();
+  private lastSave: Map<string, number> = new Map();
+
+  // Storage keys
+  private readonly KEYS = {
+    SNAPSHOT: 'jobSnapshot',
+    ACTIVITY: 'jobActivity',
+    QUEUE: 'jobQueue',
+    HISTORY: 'jobHistory',
+    MIGRATION: 'jobStoreMigration'
+  };
+
+  constructor(options: JobStoreOptions = {}) {
+    this.options = {
+      maxActivityEntries: 100,
+      maxQueueHistory: 10,
+      debounceDelay: 500,
+      retryAttempts: 3,
+      retryDelay: 1000,
+      enableCompression: false,
+      ...options
+    };
+  }
+
+  /**
+   * Load the current job snapshot
+   */
+  async loadSnapshot(): Promise<JobSnapshot | null> {
+    try {
+      const result = await chrome.storage.local.get(this.KEYS.SNAPSHOT);
+      const snapshotData = result[this.KEYS.SNAPSHOT];
+      
+      if (!snapshotData) {
+        return null;
+      }
+
+      // Validate snapshot structure
+      if (this.isValidSnapshot(snapshotData)) {
+        return snapshotData;
+      } else {
+        console.warn('Invalid snapshot data found, clearing');
+        await this.clearSnapshot();
+        return null;
+      }
+    } catch (error) {
+      console.error('Failed to load job snapshot:', error);
+      return null;
+    }
+  }
+
+  /**
+   * Save the current job snapshot
+   */
+  async saveSnapshot(snapshot: JobSnapshot): Promise<void> {
+    if (!this.isValidSnapshot(snapshot)) {
+      throw new Error('Invalid snapshot data');
+    }
+
+    const key = this.KEYS.SNAPSHOT;
+    const lastSaveTime = this.lastSave.get(key) || 0;
+    const now = Date.now();
+
+    // Check if we need to debounce
+    if (now - lastSaveTime < this.options.debounceDelay!) {
+      // Schedule deferred save
+      this.scheduleSave(key, snapshot);
+      return;
+    }
+
+    await this.performSave(key, snapshot);
+    this.lastSave.set(key, now);
+  }
+
+  /**
+   * Append activity entry to the log
+   */
+  async appendActivity(entry: JobActivity): Promise<void> {
+    if (!this.isValidActivity(entry)) {
+      throw new Error('Invalid activity entry');
+    }
+
+    try {
+      // Load existing activity log
+      const result = await chrome.storage.local.get(this.KEYS.ACTIVITY);
+      const activities: JobActivity[] = result[this.KEYS.ACTIVITY] || [];
+      
+      // Add new entry
+      activities.push(entry);
+      
+      // Trim if too long
+      if (activities.length > this.options.maxActivityEntries!) {
+        activities.splice(0, activities.length - this.options.maxActivityEntries!);
+      }
+      
+      // Save trimmed log
+      await this.performSave(this.KEYS.ACTIVITY, activities);
+    } catch (error) {
+      console.error('Failed to append activity:', error);
+      // Don't throw - activity logging should not break the main flow
+    }
+  }
+
+  /**
+   * Load activity log entries
+   */
+  async loadActivity(limit?: number): Promise<JobActivity[]> {
+    try {
+      const result = await chrome.storage.local.get(this.KEYS.ACTIVITY);
+      const activities: JobActivity[] = result[this.KEYS.ACTIVITY] || [];
+      
+      // Validate entries
+      const validActivities = activities.filter(entry => this.isValidActivity(entry));
+      
+      if (validActivities.length !== activities.length) {
+        console.warn(`Filtered ${activities.length - validActivities.length} invalid activity entries`);
+        // Clean up invalid entries
+        await this.performSave(this.KEYS.ACTIVITY, validActivities);
+      }
+      
+      // Apply limit if specified
+      if (limit && limit > 0) {
+        return validActivities.slice(-limit);
+      }
+      
+      return validActivities;
+    } catch (error) {
+      console.error('Failed to load activity log:', error);
+      return [];
+    }
+  }
+
+  /**
+   * Clear all data for a specific job
+   */
+  async clear(jobId: string): Promise<void> {
+    try {
+      // Clear snapshot if it matches the job ID
+      const snapshot = await this.loadSnapshot();
+      if (snapshot && snapshot.jobId === jobId) {
+        await this.clearSnapshot();
+      }
+
+      // Filter activity log to remove entries for this job
+      const result = await chrome.storage.local.get(this.KEYS.ACTIVITY);
+      const activities: JobActivity[] = result[this.KEYS.ACTIVITY] || [];
+      const filteredActivities = activities.filter(entry => entry.jobId !== jobId);
+      
+      if (filteredActivities.length !== activities.length) {
+        await this.performSave(this.KEYS.ACTIVITY, filteredActivities);
+      }
+
+      // Clear from queue history
+      await this.clearFromQueueHistory(jobId);
+
+    } catch (error) {
+      console.error('Failed to clear job data:', error);
+    }
+  }
+
+  /**
+   * Save job queue summary
+   */
+  async saveQueue(queue: JobQueueSummary): Promise<void> {
+    if (!this.isValidQueue(queue)) {
+      throw new Error('Invalid queue data');
+    }
+
+    await this.performSave(this.KEYS.QUEUE, queue);
+  }
+
+  /**
+   * Load job queue summary
+   */
+  async loadQueue(): Promise<JobQueueSummary | null> {
+    try {
+      const result = await chrome.storage.local.get(this.KEYS.QUEUE);
+      const queueData = result[this.KEYS.QUEUE];
+      
+      if (queueData && this.isValidQueue(queueData)) {
+        return queueData;
+      }
+    } catch (error) {
+      console.error('Failed to load queue data:', error);
+    }
+    
+    return null;
+  }
+
+  /**
+   * Clear the job snapshot
+   */
+  async clearSnapshot(): Promise<void> {
+    try {
+      await chrome.storage.local.remove(this.KEYS.SNAPSHOT);
+      this.lastSave.delete(this.KEYS.SNAPSHOT);
+    } catch (error) {
+      console.error('Failed to clear snapshot:', error);
+    }
+  }
+
+  /**
+   * Clear the activity log
+   */
+  async clearActivity(): Promise<void> {
+    try {
+      await chrome.storage.local.remove(this.KEYS.ACTIVITY);
+      this.lastSave.delete(this.KEYS.ACTIVITY);
+    } catch (error) {
+      console.error('Failed to clear activity log:', error);
+    }
+  }
+
+  /**
+   * Get storage usage statistics
+   */
+  async getStorageStats(): Promise<{
+    usedBytes: number;
+    availableBytes: number;
+    snapshotSize: number;
+    activitySize: number;
+    queueSize: number;
+    historySize: number;
+  }> {
+    try {
+      const usage = await chrome.storage.local.getBytesInUse();
+      const quota = await chrome.storage.local.getQuota();
+      
+      // Get individual component sizes
+      const result = await chrome.storage.local.get([
+        this.KEYS.SNAPSHOT,
+        this.KEYS.ACTIVITY,
+        this.KEYS.QUEUE,
+        this.KEYS.HISTORY
+      ]);
+      
+      const snapshotSize = this.calculateSize(result[this.KEYS.SNAPSHOT]);
+      const activitySize = this.calculateSize(result[this.KEYS.ACTIVITY]);
+      const queueSize = this.calculateSize(result[this.KEYS.QUEUE]);
+      const historySize = this.calculateSize(result[this.KEYS.HISTORY]);
+      
+      return {
+        usedBytes: usage,
+        availableBytes: quota - usage,
+        snapshotSize,
+        activitySize,
+        queueSize,
+        historySize
+      };
+    } catch (error) {
+      console.error('Failed to get storage stats:', error);
+      return {
+        usedBytes: 0,
+        availableBytes: 0,
+        snapshotSize: 0,
+        activitySize: 0,
+        queueSize: 0,
+        historySize: 0
+      };
+    }
+  }
+
+  /**
+   * Clean up old data to free storage space
+   */
+  async cleanup(maxAgeDays: number = 30): Promise<number> {
+    try {
+      const cutoffTime = Date.now() - (maxAgeDays * 24 * 60 * 60 * 1000);
+      let cleaned = 0;
+
+      // Clean old activity entries
+      const result = await chrome.storage.local.get(this.KEYS.ACTIVITY);
+      const activities: JobActivity[] = result[this.KEYS.ACTIVITY] || [];
+      const recentActivities = activities.filter(entry => {
+        const entryTime = new Date(entry.timestamp).getTime();
+        return entryTime > cutoffTime;
+      });
+
+      if (recentActivities.length < activities.length) {
+        cleaned += activities.length - recentActivities.length;
+        await this.performSave(this.KEYS.ACTIVITY, recentActivities);
+      }
+
+      // Clean old queue history
+      const queueResult = await chrome.storage.local.get(this.KEYS.HISTORY);
+      const queueHistory: Array<{ jobId: string; timestamp: number }> = queueResult[this.KEYS.HISTORY] || [];
+      const recentHistory = queueHistory.filter(entry => entry.timestamp > cutoffTime);
+
+      if (recentHistory.length < queueHistory.length) {
+        cleaned += queueHistory.length - recentHistory.length;
+        await this.performSave(this.KEYS.HISTORY, recentHistory);
+      }
+
+      return cleaned;
+    } catch (error) {
+      console.error('Failed to cleanup old data:', error);
+      return 0;
+    }
+  }
+
+  /**
+   * Perform the actual save operation with retry logic
+   */
+  private async performSave(key: string, data: any, attempt: number = 1): Promise<void> {
+    try {
+      // Add timestamp for tracking
+      const dataWithTimestamp = {
+        ...data,
+        _lastUpdated: Date.now()
+      };
+
+      await chrome.storage.local.set({ [key]: dataWithTimestamp });
+    } catch (error) {
+      if (attempt <= this.options.retryAttempts!) {
+        console.warn(`Save attempt ${attempt} failed for ${key}, retrying...`, error);
+        await new Promise(resolve => setTimeout(resolve, this.options.retryDelay! * attempt));
+        return this.performSave(key, data, attempt + 1);
+      } else {
+        console.error(`Save failed for ${key} after ${attempt - 1} retries:`, error);
+        throw error;
+      }
+    }
+  }
+
+  /**
+   * Schedule a deferred save operation
+   */
+  private scheduleSave(key: string, data: any): void {
+    // Clear existing timeout
+    const existingTimeout = this.saveQueue.get(key);
+    if (existingTimeout) {
+      clearTimeout(existingTimeout);
+    }
+
+    // Schedule new save
+    const timeout = setTimeout(async () => {
+      this.saveQueue.delete(key);
+      await this.performSave(key, data);
+      this.lastSave.set(key, Date.now());
+    }, this.options.debounceDelay);
+
+    this.saveQueue.set(key, timeout);
+  }
+
+  /**
+   * Calculate approximate size of data in bytes
+   */
+  private calculateSize(data: any): number {
+    try {
+      return new Blob([JSON.stringify(data)]).size;
+    } catch (error) {
+      return 0;
+    }
+  }
+
+  /**
+   * Remove job from queue history
+   */
+  private async clearFromQueueHistory(jobId: string): Promise<void> {
+    try {
+      const result = await chrome.storage.local.get(this.KEYS.HISTORY);
+      const history: Array<{ jobId: string; timestamp: number }> = result[this.KEYS.HISTORY] || [];
+      const filteredHistory = history.filter(entry => entry.jobId !== jobId);
+      
+      if (filteredHistory.length !== history.length) {
+        await this.performSave(this.KEYS.HISTORY, filteredHistory);
+      }
+    } catch (error) {
+      console.error('Failed to clear from queue history:', error);
+    }
+  }
+
+  /**
+   * Validate snapshot structure
+   */
+  private isValidSnapshot(data: any): data is JobSnapshot {
+    return data &&
+           typeof data.jobId === 'string' &&
+           typeof data.status === 'string' &&
+           typeof data.stage === 'string' &&
+           typeof data.stageIndex === 'number' &&
+           data.stageUnits &&
+           typeof data.stageUnits.processed === 'number' &&
+           typeof data.weightedPercent === 'number' &&
+           typeof data.activity === 'string' &&
+           typeof data.timestamp === 'string';
+  }
+
+  /**
+   * Validate activity entry structure
+   */
+  private isValidActivity(data: any): data is JobActivity {
+    return data &&
+           typeof data.jobId === 'string' &&
+           typeof data.timestamp === 'string' &&
+           typeof data.level === 'string' &&
+           typeof data.message === 'string' &&
+           ['info', 'warn', 'error'].includes(data.level);
+  }
+
+  /**
+   * Validate queue data structure
+   */
+  private isValidQueue(data: any): data is JobQueueSummary {
+    return data &&
+           typeof data.total === 'number' &&
+           typeof data.pending === 'number' &&
+           typeof data.running === 'number' &&
+           typeof data.paused === 'number' &&
+           Array.isArray(data.recentJobs);
+  }
+
+  /**
+   * Add job to history for tracking
+   */
+  async addToHistory(jobId: string): Promise<void> {
+    try {
+      const result = await chrome.storage.local.get(this.KEYS.HISTORY);
+      const history: Array<{ jobId: string; timestamp: number }> = result[this.KEYS.HISTORY] || [];
+      
+      // Add new entry
+      history.push({ jobId, timestamp: Date.now() });
+      
+      // Trim to max history size
+      if (history.length > this.options.maxQueueHistory!) {
+        history.splice(0, history.length - this.options.maxQueueHistory!);
+      }
+      
+      await this.performSave(this.KEYS.HISTORY, history);
+    } catch (error) {
+      console.error('Failed to add job to history:', error);
+    }
+  }
+
+  /**
+   * Get job history
+   */
+  async getHistory(): Promise<Array<{ jobId: string; timestamp: number }>> {
+    try {
+      const result = await chrome.storage.local.get(this.KEYS.HISTORY);
+      return result[this.KEYS.HISTORY] || [];
+    } catch (error) {
+      console.error('Failed to get job history:', error);
+      return [];
+    }
+  }
+
+  /**
+   * Check storage quota and warn if approaching limits
+   */
+  async checkQuotaWarning(): Promise<{ warning: boolean; usage: number; quota: number }> {
+    try {
+      const usage = await chrome.storage.local.getBytesInUse();
+      const quota = await chrome.storage.local.getQuota();
+      const warningThreshold = 0.8; // 80% of quota
+
+      const warning = usage > (quota * warningThreshold);
+      
+      return {
+        warning,
+        usage,
+        quota
+      };
+    } catch (error) {
+      console.error('Failed to check quota:', error);
+      return { warning: false, usage: 0, quota: 0 };
+    }
+  }
+
+  /**
+   * Migrate from old storage format
+   */
+  async migrateFromLegacy(): Promise<{ migrated: boolean; error?: string }> {
+    try {
+      // Check if migration already performed
+      const migrationResult = await chrome.storage.local.get(this.KEYS.MIGRATION);
+      if (migrationResult[this.KEYS.MIGRATION]) {
+        return { migrated: false };
+      }
+
+      // Check for legacy data
+      const legacyKeys = ['dedupeJob', 'cleanupJob', 'jobState'];
+      const legacyData: any = {};
+      
+      for (const key of legacyKeys) {
+        const result = await chrome.storage.local.get(key);
+        if (result[key]) {
+          legacyData[key] = result[key];
+        }
+      }
+
+      if (Object.keys(legacyData).length === 0) {
+        // Mark migration as completed
+        await chrome.storage.local.set({ [this.KEYS.MIGRATION]: { migrated: true, timestamp: Date.now() } });
+        return { migrated: false };
+      }
+
+      // Perform migration
+      console.log('Migrating legacy job data...', legacyData);
+
+      // Migrate snapshot
+      if (legacyData.dedupeJob || legacyData.cleanupJob) {
+        const legacySnapshot = legacyData.dedupeJob || legacyData.cleanupJob;
+        if (legacySnapshot) {
+          await this.performSave(this.KEYS.SNAPSHOT, legacySnapshot);
+        }
+      }
+
+      // Clean up legacy data
+      await chrome.storage.local.remove(legacyKeys);
+      
+      // Mark migration as completed
+      await chrome.storage.local.set({ 
+        [this.KEYS.MIGRATION]: { 
+          migrated: true, 
+          timestamp: Date.now(),
+          migratedKeys: legacyKeys 
+        } 
+      });
+
+      return { migrated: true };
+    } catch (error) {
+      console.error('Migration failed:', error);
+      return { 
+        migrated: false, 
+        error: error instanceof Error ? error.message : 'Unknown migration error' 
+      };
+    }
+  }
+
+  /**
+   * Reset all stored data
+   */
+  async reset(): Promise<void> {
+    try {
+      await chrome.storage.local.remove([
+        this.KEYS.SNAPSHOT,
+        this.KEYS.ACTIVITY,
+        this.KEYS.QUEUE,
+        this.KEYS.HISTORY,
+        this.KEYS.MIGRATION
+      ]);
+      
+      // Clear in-memory state
+      this.lastSave.clear();
+      this.saveQueue.forEach(timeout => clearTimeout(timeout));
+      this.saveQueue.clear();
+    } catch (error) {
+      console.error('Failed to reset job store:', error);
+    }
+  }
+}
+
+/**
+ * Global job store instance
+ */
+let globalJobStore: JobStore | null = null;
+
+/**
+ * Get or create the global job store instance
+ */
+export function getJobStore(options?: JobStoreOptions): JobStore {
+  if (!globalJobStore) {
+    globalJobStore = new JobStore(options);
+  }
+  return globalJobStore;
+}
+
+/**
+ * Dispose the global job store
+ */
+export function disposeJobStore(): void {
+  if (globalJobStore) {
+    // Clear any pending saves
+    globalJobStore = null;
+  }
+}
