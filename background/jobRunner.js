@@ -31,9 +31,10 @@ export class JobRunner {
     this.retryCount = new Map();
     this.subscribers = new Set();
 
-    // Subscribe to job bus events
+    // Subscribe to job bus events to keep the internal state synchronized
     this.jobBus.subscribe('job-runner', (event) => {
-      if (event.type === 'jobStatus' && event.job?.jobId && this.currentJob && event.job.jobId === this.currentJob.jobId) {
+      const isRelevantEvent = event.type === 'jobStatus' || event.type === 'jobCompleted' || event.type === 'jobTerminated';
+      if (isRelevantEvent && event.job?.jobId && this.currentJob && event.job.jobId === this.currentJob.jobId) {
         this.currentJob = event.job;
         this.notifySubscribers();
       }
@@ -524,7 +525,26 @@ export class JobRunner {
     }
 
     await this.jobStore.saveSnapshot(this.currentJob);
-    this.publishJobStatus();
+
+    // Publish jobStatus event for backward compatibility with existing listeners
+    // (UI, storage fallbacks, etc. still expect this event type)
+    this.jobBus.publish({
+      type: 'jobStatus',
+      job: this.currentJob
+    });
+
+    // FIX: Publish a specific, terminal event instead of the generic 'jobStatus'.
+    // This is the core of the fix to prevent infinite loops. External listeners
+    // should subscribe to these specific events for post-job actions, and avoid
+    // re-triggering from a generic status update.
+    const eventType = status === 'completed' ? 'jobCompleted' : 'jobTerminated';
+    this.jobBus.publish({
+      type: eventType,
+      job: this.currentJob
+    });
+
+    // We still notify local subscribers to update the internal state.
+    this.notifySubscribers();
 
     // Add final activity
     this.addActivity(

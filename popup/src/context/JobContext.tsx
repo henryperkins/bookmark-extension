@@ -132,6 +132,15 @@ export function JobProvider({ children }: JobProviderProps) {
               }
               break;
 
+            case 'jobCompleted':
+            case 'jobTerminated':
+              // Handle terminal job events (completed, cancelled, failed)
+              if (message.job) {
+                setSnapshot(message.job);
+                logDebug(`[JobContext] Job ${message.type}:`, message.job.status);
+              }
+              break;
+
             case 'jobConnected':
               console.log('[JobContext] Connected to job bus:', message.portName);
               break;

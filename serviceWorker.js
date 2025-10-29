@@ -563,6 +563,46 @@ chrome.runtime.onMessage.addListener((msg, _sender, reply) => {
           return;
         }
 
+        case "jobCommand": {
+          // Fallback handler for job commands when port connection is unavailable
+          const command = msg.command;
+          const payload = msg.payload;
+
+          try {
+            let result;
+            switch (command) {
+              case "START_JOB":
+                result = await JobSystemCommands.startJob(
+                  payload?.requestedBy || 'popup',
+                  { metadata: payload?.metadata }
+                );
+                break;
+              case "PAUSE_JOB":
+                result = await JobSystemCommands.pauseJob();
+                break;
+              case "RESUME_JOB":
+                result = await JobSystemCommands.resumeJob();
+                break;
+              case "CANCEL_JOB":
+                result = await JobSystemCommands.cancelJob();
+                break;
+              case "GET_JOB_STATUS":
+                result = await JobSystemCommands.getJobStatus();
+                break;
+              case "GET_ACTIVITY_LOG":
+                result = await JobSystemCommands.getActivityLog(payload?.limit || 50);
+                break;
+              default:
+                result = { success: false, error: `Unknown job command: ${command}` };
+            }
+            safeReply(result);
+          } catch (error) {
+            console.error('[serviceWorker] jobCommand error:', error);
+            safeReply({ success: false, error: String(error) });
+          }
+          return;
+        }
+
         default:
           safeReply(true);
       }
