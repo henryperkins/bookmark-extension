@@ -1,7 +1,11 @@
 import { useState, useEffect } from 'react';
 import { JobProvider } from './context/JobContext';
 import { ProgressHeader } from './components/ProgressHeader';
+import { JobDashboard, CompactJobDashboard } from './components/JobDashboard';
 import { StageList, ActivityFeed, MetricsPanel } from './components/Phase2Panels';
+import { JobHistory } from './components/JobHistory';
+import { useI18n } from './i18n';
+import { useAccessibility } from './hooks/useAccessibility';
 
 // Windows 11 2025 Typography Standards - Design System
 const styles = {
@@ -80,6 +84,7 @@ interface BookmarkNode {
 
 // Review Queue Component
 function ReviewQueue() {
+  const { t } = useI18n();
   const [pending, setPending] = useState<Duplicate[]>([]);
   const [filter, setFilter] = useState('');
   const [loading, setLoading] = useState(false);
@@ -105,7 +110,7 @@ function ReviewQueue() {
   };
 
   const acceptAll = () => {
-    if (confirm(`Accept all ${pending.length} duplicates for removal?`)) {
+    if (confirm(t('reviewQueue.confirmAcceptAll', { count: pending.length }))) {
       chrome.runtime.sendMessage({ type: "ACCEPT_ALL" }, refresh);
     }
   };
@@ -124,14 +129,14 @@ function ReviewQueue() {
         margin: 0,
         marginBottom: styles.spacing.lg
       }}>
-        Review Duplicates ({pending.length})
+        {t('reviewQueue.title')} ({pending.length})
       </h3>
 
       {pending.length > 0 && (
         <>
           <input
             type="text"
-            placeholder="Filter by title..."
+            placeholder={t('reviewQueue.filterPlaceholder')}
             value={filter}
             onChange={e => setFilter(e.target.value)}
             style={{
@@ -160,19 +165,19 @@ function ReviewQueue() {
               lineHeight: styles.typography.lineBody
             }}
           >
-            Accept All
+            {t('reviewQueue.acceptAll')}
           </button>
         </>
       )}
 
-      {loading && <p style={{ lineHeight: styles.typography.lineBody }}>Loading...</p>}
+      {loading && <p style={{ lineHeight: styles.typography.lineBody }}>{t('reviewQueue.loading')}</p>}
 
       {!loading && pending.length === 0 && (
         <p style={{
           color: styles.colors.textMuted,
           lineHeight: styles.typography.lineBody
         }}>
-          No duplicates pending review.
+          {t('reviewQueue.noDuplicates')}
         </p>
       )}
 
@@ -208,7 +213,7 @@ function ReviewQueue() {
               color: styles.colors.primary,
               fontSize: styles.typography.fontCaption
             }}>
-              {d.similarity}% similar to: {d.duplicateOf?.title}
+              {t('reviewQueue.similarText', { percent: d.similarity, title: d.duplicateOf?.title })}
             </span>
             <div style={{ marginTop: styles.spacing.sm }}>
               <button
@@ -226,7 +231,7 @@ function ReviewQueue() {
                   lineHeight: styles.typography.lineBody
                 }}
               >
-                Accept
+                {t('reviewQueue.accept')}
               </button>
               <button
                 onClick={() => reject(d.id)}
@@ -242,7 +247,7 @@ function ReviewQueue() {
                   lineHeight: styles.typography.lineBody
                 }}
               >
-                Reject
+                {t('reviewQueue.reject')}
               </button>
             </div>
           </li>
@@ -254,13 +259,14 @@ function ReviewQueue() {
 
 // Add Bookmark Component
 function AddForm() {
+  const { t } = useI18n();
   const [title, setTitle] = useState('');
   const [url, setUrl] = useState('');
   const [parentId, setParentId] = useState('1');
 
   const submit = () => {
     if (!title || !url) {
-      alert('Please enter both title and URL');
+      alert(t('addBookmark.validationError'));
       return;
     }
 
@@ -270,7 +276,7 @@ function AddForm() {
         console.warn('Duplicate lookup failed:', lastError.message);
       }
       if (dup?.exists) {
-        const proceed = window.confirm('This URL already exists in your bookmarks. Add anyway?');
+        const proceed = window.confirm(t('addBookmark.duplicateWarning'));
         if (!proceed) return;
       }
 
@@ -278,11 +284,11 @@ function AddForm() {
         { type: "CREATE_BOOKMARK", payload: { title, url, parentId } },
         (result) => {
           if (result?.id) {
-            alert('Bookmark added!');
+            alert(t('addBookmark.successMessage'));
             setTitle('');
             setUrl('');
           } else {
-            alert('Failed to add bookmark');
+            alert(t('addBookmark.errorMessage'));
           }
         }
       );
@@ -299,7 +305,7 @@ function AddForm() {
         margin: 0,
         marginBottom: styles.spacing.lg
       }}>
-        Add Bookmark
+        {t('addBookmark.title')}
       </h3>
 
       <label style={{
@@ -309,10 +315,10 @@ function AddForm() {
         color: styles.colors.text,
         lineHeight: styles.typography.lineBody
       }}>
-        Title
+        {t('addBookmark.titleLabel')}
         <input
           type="text"
-          placeholder="Bookmark title"
+          placeholder={t('addBookmark.titlePlaceholder')}
           value={title}
           onChange={e => setTitle(e.target.value)}
           style={{
@@ -334,10 +340,10 @@ function AddForm() {
         color: styles.colors.text,
         lineHeight: styles.typography.lineBody
       }}>
-        URL
+        {t('addBookmark.urlLabel')}
         <input
           type="text"
-          placeholder="https://example.com"
+          placeholder={t('addBookmark.urlPlaceholder')}
           value={url}
           onChange={e => setUrl(e.target.value)}
           style={{
@@ -359,10 +365,10 @@ function AddForm() {
         color: styles.colors.text,
         lineHeight: styles.typography.lineBody
       }}>
-        Parent Folder ID
+        {t('addBookmark.parentFolderLabel')}
         <input
           type="text"
-          placeholder="1"
+          placeholder={t('addBookmark.parentFolderPlaceholder')}
           value={parentId}
           onChange={e => setParentId(e.target.value)}
           style={{
@@ -391,7 +397,7 @@ function AddForm() {
           lineHeight: styles.typography.lineBody
         }}
       >
-        Add Bookmark
+        {t('addBookmark.submitButton')}
       </button>
     </div>
   );
@@ -399,6 +405,7 @@ function AddForm() {
 
 // Tree View Component
 function TreeView() {
+  const { t } = useI18n();
   const [tree, setTree] = useState<BookmarkNode[]>([]);
   const [loading, setLoading] = useState(false);
 
@@ -415,7 +422,7 @@ function TreeView() {
   }, []);
 
   const edit = (node: BookmarkNode) => {
-    const title = prompt('New title:', node.title) || node.title;
+    const title = prompt(t('manageBookmarks.newTitlePrompt'), node.title) || node.title;
     if (title) {
       chrome.runtime.sendMessage(
         { type: "UPDATE_BOOKMARK", id: node.id, changes: { title } },
@@ -425,7 +432,7 @@ function TreeView() {
   };
 
   const del = (node: BookmarkNode) => {
-    if (confirm(`Delete "${node.title || node.url}"?`)) {
+    if (confirm(t('manageBookmarks.confirmDelete', { title: node.title || node.url }))) {
       chrome.runtime.sendMessage({ type: "DELETE_BOOKMARK", id: node.id }, refresh);
     }
   };
@@ -444,7 +451,7 @@ function TreeView() {
         }}
       >
         {n.url ? '📄 ' : '📁 '}
-        {n.title || n.url || 'Untitled'}
+        {n.title || n.url || t('manageBookmarks.untitled')}
       </span>
       <button
         onClick={() => del(n)}
@@ -460,7 +467,7 @@ function TreeView() {
           fontWeight: styles.typography.weightSemibold
         }}
       >
-        Delete
+        {t('manageBookmarks.delete')}
       </button>
       {n.children && n.children.length > 0 && (
         <ul style={{ marginLeft: '1.25rem' }}>
@@ -480,10 +487,10 @@ function TreeView() {
         margin: 0,
         marginBottom: styles.spacing.lg
       }}>
-        Manage Bookmarks
+        {t('manageBookmarks.title')}
       </h3>
 
-      {loading && <p style={{ lineHeight: styles.typography.lineBody }}>Loading...</p>}
+      {loading && <p style={{ lineHeight: styles.typography.lineBody }}>{t('manageBookmarks.loading')}</p>}
 
       <ul style={{ listStyle: 'none', padding: 0, margin: 0 }}>
         {tree.map(renderNode)}
@@ -494,18 +501,19 @@ function TreeView() {
 
 // Import/Export Component
 function ImportExport() {
+  const { t } = useI18n();
   const [file, setFile] = useState<File | null>(null);
   const [parentId, setParentId] = useState('1');
 
   const exportAll = () => {
     chrome.runtime.sendMessage({ type: "EXPORT_BOOKMARKS" }, () => {
-      alert('Export started! Check your downloads.');
+      alert(t('importExport.exportStarted'));
     });
   };
 
   const importAll = async () => {
     if (!file) {
-      alert('Please select a file first');
+      alert(t('importExport.selectFileError'));
       return;
     }
 
@@ -513,7 +521,7 @@ function ImportExport() {
     chrome.runtime.sendMessage(
       { type: "IMPORT_BOOKMARKS", text, parentId },
       () => {
-        alert('Import complete!');
+        alert(t('importExport.importComplete'));
         setFile(null);
       }
     );
@@ -529,7 +537,7 @@ function ImportExport() {
         margin: 0,
         marginBottom: styles.spacing.lg
       }}>
-        Import/Export
+        {t('importExport.title')}
       </h3>
 
       <div style={{ marginBottom: styles.spacing.xl }}>
@@ -541,7 +549,7 @@ function ImportExport() {
           marginTop: 0,
           marginBottom: styles.spacing.md
         }}>
-          Export
+          {t('importExport.exportTitle')}
         </h4>
         <button
           onClick={exportAll}
@@ -557,7 +565,7 @@ function ImportExport() {
             lineHeight: styles.typography.lineBody
           }}
         >
-          Export All Bookmarks
+          {t('importExport.exportButton')}
         </button>
         <p style={{
           fontSize: styles.typography.fontCaption,
@@ -565,7 +573,7 @@ function ImportExport() {
           lineHeight: styles.typography.lineBody,
           marginTop: styles.spacing.sm
         }}>
-          Exports bookmarks in Netscape HTML format
+          {t('importExport.exportDescription')}
         </p>
       </div>
 
@@ -578,7 +586,7 @@ function ImportExport() {
           marginTop: 0,
           marginBottom: styles.spacing.md
         }}>
-          Import
+          {t('importExport.importTitle')}
         </h4>
         <input
           type="file"
@@ -597,10 +605,10 @@ function ImportExport() {
           color: styles.colors.text,
           lineHeight: styles.typography.lineBody
         }}>
-          Parent Folder ID
+          {t('importExport.parentFolderLabel')}
           <input
             type="text"
-            placeholder="1"
+            placeholder={t('importExport.parentFolderPlaceholder')}
             value={parentId}
             onChange={e => setParentId(e.target.value)}
             style={{
@@ -629,7 +637,7 @@ function ImportExport() {
             lineHeight: styles.typography.lineBody
           }}
         >
-          Import Bookmarks
+          {t('importExport.importButton')}
         </button>
         <p style={{
           fontSize: styles.typography.fontCaption,
@@ -637,7 +645,7 @@ function ImportExport() {
           lineHeight: styles.typography.lineBody,
           marginTop: styles.spacing.sm
         }}>
-          Imports from Netscape HTML format (standard browser export)
+          {t('importExport.importDescription')}
         </p>
       </div>
     </div>
@@ -646,34 +654,42 @@ function ImportExport() {
 
 // Main App Component (inner, wrapped by JobProvider)
 function AppContent() {
-  const [tab, setTab] = useState<'review' | 'add' | 'manage' | 'io'>('review');
+  const { t } = useI18n();
+  const { prefersReducedMotion, announceToScreenReader } = useAccessibility();
+  const [tab, setTab] = useState<'review' | 'add' | 'manage' | 'io' | 'progress'>('review');
 
   return (
     <div>
-      {/* New ProgressHeader component shows real-time job status */}
+      {/* ProgressHeader - Always visible for real-time job status */}
       <ProgressHeader />
 
-      {/* Phase 2 panels: StageList, MetricsPanel, ActivityFeed */}
-      <StageList />
-      <MetricsPanel />
-      <ActivityFeed />
+      {/* Job Dashboard - New comprehensive dashboard replacing individual panels */}
+      {tab === 'progress' && <JobDashboard />}
 
+      {/* Navigation Tabs - Updated with new Progress tab */}
       <nav
         style={{
           display: 'flex',
           borderBottom: `1px solid ${styles.colors.borderLight}`,
           background: styles.colors.backgroundAlt
         }}
+        role="tablist"
+        aria-label={t('accessibility.mainNavigation')}
       >
         {[
-          { key: 'review', label: 'Review' },
-          { key: 'add', label: 'Add' },
-          { key: 'manage', label: 'Manage' },
-          { key: 'io', label: 'Import/Export' }
-        ].map(({ key, label }) => (
+          { key: 'review', label: t('tabs.review'), description: t('tabDescriptions.review') },
+          { key: 'add', label: t('tabs.add'), description: t('tabDescriptions.add') },
+          { key: 'manage', label: t('tabs.manage'), description: t('tabDescriptions.manage') },
+          { key: 'io', label: t('tabs.importExport'), description: t('tabDescriptions.importExport') },
+          { key: 'progress', label: t('tabs.progress'), description: t('tabDescriptions.progress') }
+        ].map(({ key, label, description }) => (
           <button
             key={key}
-            onClick={() => setTab(key as any)}
+            onClick={() => {
+              setTab(key as any);
+              // Announce tab change to screen readers
+              announceToScreenReader(`${t('accessibility.buttonFocus')} ${label}`, 'polite');
+            }}
             style={{
               flex: 1,
               padding: styles.spacing.md,
@@ -684,18 +700,132 @@ function AppContent() {
               fontWeight: tab === key ? styles.typography.weightSemibold : styles.typography.weightRegular,
               fontSize: styles.typography.fontBody,
               lineHeight: styles.typography.lineBody,
-              color: styles.colors.text
+              color: styles.colors.text,
+              position: 'relative',
+              transition: prefersReducedMotion ? 'none' : 'all 0.2s ease',
             }}
+            onMouseOver={(e) => {
+              if (tab !== key) {
+                e.currentTarget.style.backgroundColor = styles.colors.background;
+              }
+            }}
+            onMouseOut={(e) => {
+              if (tab !== key) {
+                e.currentTarget.style.backgroundColor = 'transparent';
+              }
+            }}
+            role="tab"
+            aria-selected={tab === key}
+            aria-controls={`${key}-panel`}
+            title={description}
           >
             {label}
+            {tab === 'progress' && (
+              <span
+                style={{
+                  display: 'inline-block',
+                  width: '6px',
+                  height: '6px',
+                  borderRadius: '50%',
+                  backgroundColor: styles.colors.primary,
+                  marginLeft: styles.spacing.xs,
+                  animation: !prefersReducedMotion ? 'pulse 2s ease-in-out infinite' : 'none',
+                }}
+                aria-hidden="true"
+                  title={t('accessibility.progressIndicator')}
+              />
+            )}
           </button>
         ))}
       </nav>
 
-      {tab === 'review' && <ReviewQueue />}
-      {tab === 'add' && <AddForm />}
-      {tab === 'manage' && <TreeView />}
-      {tab === 'io' && <ImportExport />}
+      {/* Tab Panels */}
+      <div
+        role="tabpanel"
+        id={`${tab}-panel`}
+        aria-labelledby={`${tab}-tab`}
+        style={{
+          minHeight: '400px', // Ensure adequate content area
+        }}
+      >
+        {tab === 'review' && <ReviewQueue />}
+        {tab === 'add' && <AddForm />}
+        {tab === 'manage' && <TreeView />}
+        {tab === 'io' && <ImportExport />}
+        {/* Progress tab content is handled by JobDashboard component */}
+      </div>
+
+      {/* Accessibility and animation styles */}
+      <style>{`
+        @keyframes pulse {
+          0%, 100% { opacity: 1; }
+          50% { opacity: 0.3; }
+        }
+
+        /* Enhanced accessibility styles */
+        @media (prefers-reduced-motion: reduce) {
+          * {
+            animation-duration: 0.01ms !important;
+            animation-iteration-count: 1 !important;
+            transition-duration: 0.01ms !important;
+          }
+
+          [style*="animation"] {
+            animation: none !important;
+          }
+
+          [style*="transition"] {
+            transition: none !important;
+          }
+        }
+
+        @media (prefers-contrast: high) {
+          button {
+            border: 2px solid currentColor !important;
+          }
+
+          button:focus-visible {
+            outline: 3px solid #0078d4 !important;
+            outline-offset: 2px !important;
+          }
+
+          input:focus-visible {
+            outline: 3px solid #0078d4 !important;
+            outline-offset: 2px !important;
+          }
+        }
+
+        /* Screen reader only content */
+        .sr-only {
+          position: absolute !important;
+          width: 1px !important;
+          height: 1px !important;
+          padding: 0 !important;
+          margin: -1px !important;
+          overflow: hidden !important;
+          clip: rect(0, 0, 0, 0) !important;
+          white-space: nowrap !important;
+          border: 0 !important;
+        }
+
+        /* Enhanced focus styles */
+        *:focus-visible {
+          outline: 2px solid #0078d4 !important;
+          outline-offset: 2px !important;
+        }
+
+        /* High contrast mode support */
+        @media (forced-colors: active) {
+          button {
+            border: 2px solid ButtonText !important;
+            forced-color-adjust: none !important;
+          }
+
+          button:focus-visible {
+            outline: 3px solid Highlight !important;
+          }
+        }
+      `}</style>
     </div>
   );
 }

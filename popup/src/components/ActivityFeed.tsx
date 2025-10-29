@@ -1,3 +1,4 @@
+import React, { useState, useMemo } from 'react';
 import { useJob } from '../hooks/useJob';
 
 // Design system (matching ProgressHeader and App.tsx)
@@ -63,10 +64,12 @@ export function ActivityFeed({
 }: ActivityFeedProps) {
   const { activity, snapshot } = useJob();
 
-  // Filter and limit activity entries
-  const displayedActivity = activity
-    .slice(-maxEntries)
-    .reverse(); // Show newest first
+  // Memoize the displayed activity entries to prevent unnecessary re-calculations
+  const displayedActivity = useMemo(() => {
+    return activity
+      .slice(-maxEntries)
+      .reverse(); // Show newest first
+  }, [activity, maxEntries]); // Only re-calculate when activity or maxEntries change
 
   if (!snapshot || displayedActivity.length === 0) {
     return (
@@ -313,24 +316,29 @@ export function ActivityFeed({
   );
 }
 
+// Export memoized version as default
+export default React.memo(ActivityFeed);
+
 // Enhanced version with filtering capabilities
 export function FilteredActivityFeed({ maxEntries = 100 }: { maxEntries?: number }) {
   const { activity } = useJob();
   const [selectedLevel, setSelectedLevel] = useState<string>('all');
   const [searchQuery, setSearchQuery] = useState<string>('');
 
-  const filteredActivity = activity
-    .filter(entry => {
-      if (selectedLevel !== 'all' && entry.level !== selectedLevel) {
-        return false;
-      }
-      if (searchQuery && !entry.message.toLowerCase().includes(searchQuery.toLowerCase())) {
-        return false;
-      }
-      return true;
-    })
-    .slice(-maxEntries)
-    .reverse();
+  const filteredActivity = useMemo(() => {
+    return activity
+      .filter(entry => {
+        if (selectedLevel !== 'all' && entry.level !== selectedLevel) {
+          return false;
+        }
+        if (searchQuery && !entry.message.toLowerCase().includes(searchQuery.toLowerCase())) {
+          return false;
+        }
+        return true;
+      })
+      .slice(-maxEntries)
+      .reverse();
+  }, [activity, selectedLevel, searchQuery, maxEntries]); // Only re-calculate when dependencies change
 
   return (
     <div style={{ height: '100%', display: 'flex', flexDirection: 'column' }}>
@@ -414,5 +422,3 @@ export function FilteredActivityFeed({ maxEntries = 100 }: { maxEntries?: number
   );
 }
 
-// Add useState import
-import { useState } from 'react';

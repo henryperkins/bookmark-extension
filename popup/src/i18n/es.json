@@ -1,0 +1,128 @@
+{
+  "tabs": {
+    "review": "Revisar",
+    "add": "Agregar",
+    "manage": "Administrar",
+    "importExport": "Importar/Exportar",
+    "progress": "Progreso"
+  },
+  "tabDescriptions": {
+    "review": "Revisar marcadores duplicados",
+    "add": "Agregar nuevo marcador",
+    "manage": "Administrar árbol de marcadores",
+    "importExport": "Importar o exportar marcadores",
+    "progress": "Ver progreso y métricas del trabajo"
+  },
+  "reviewQueue": {
+    "title": "Revisar Duplicados",
+    "loading": "Cargando...",
+    "noDuplicates": "No hay duplicados pendientes de revisión.",
+    "filterPlaceholder": "Filtrar por título...",
+    "acceptAll": "Aceptar Todo",
+    "accept": "Aceptar",
+    "reject": "Rechazar",
+    "confirmAcceptAll": "¿Aceptar los {{count}} duplicados para eliminación?",
+    "similarText": "{{percent}}% similar a: {{title}}"
+  },
+  "addBookmark": {
+    "title": "Agregar Marcador",
+    "titleLabel": "Título",
+    "titlePlaceholder": "Título del marcador",
+    "urlLabel": "URL",
+    "urlPlaceholder": "https://ejemplo.com",
+    "parentFolderLabel": "ID de Carpeta Padre",
+    "parentFolderPlaceholder": "1",
+    "submitButton": "Agregar Marcador",
+    "validationError": "Por favor ingrese tanto título como URL",
+    "successMessage": "¡Marcador agregado!",
+    "errorMessage": "Falló al agregar marcador",
+    "duplicateWarning": "Esta URL ya existe en sus marcadores. ¿Agregar de todos modos?"
+  },
+  "manageBookmarks": {
+    "title": "Administrar Marcadores",
+    "loading": "Cargando...",
+    "delete": "Eliminar",
+    "confirmDelete": "¿Eliminar \"{{title}}\"?",
+    "newTitlePrompt": "Nuevo título:",
+    "untitled": "Sin título"
+  },
+  "importExport": {
+    "title": "Importar/Exportar",
+    "exportTitle": "Exportar",
+    "exportButton": "Exportar Todos los Marcadores",
+    "exportDescription": "Exporta marcadores en formato HTML Netscape",
+    "importTitle": "Importar",
+    "importButton": "Importar Marcadores",
+    "importDescription": "Importa desde formato HTML Netscape (exportación estándar del navegador)",
+    "selectFileError": "Por favor seleccione un archivo primero",
+    "exportStarted": "¡Exportación iniciada! Revisa tus descargas.",
+    "importComplete": "¡Importación completa!",
+    "parentFolderLabel": "ID de Carpeta Padre",
+    "parentFolderPlaceholder": "1"
+  },
+  "jobProgress": {
+    "activeJobs": "Trabajos Activos",
+    "jobHistory": "Historial de Trabajos",
+    "noActiveJobs": "No hay trabajos activos",
+    "cancelJob": "Cancelar",
+    "retryJob": "Reintentar",
+    "viewDetails": "Ver Detalles",
+    "pauseJob": "Pausar",
+    "resumeJob": "Reanudar",
+    "stages": {
+      "initializing": "Inicializando",
+      "scanning": "Escaneando",
+      "grouping": "Agrupando",
+      "resolving": "Resolviendo",
+      "verifying": "Verificando",
+      "summarizing": "Resumiendo",
+      "parse-html": "Analizando HTML",
+      "create-bookmarks": "Creando Marcadores",
+      "enrich-bookmarks": "Enriqueciendo Marcadores",
+      "testingConnection": "Probando Conexión"
+    },
+    "status": {
+      "running": "Ejecutando",
+      "paused": "Pausado",
+      "completed": "Completado",
+      "failed": "Fallido",
+      "unknown": "Desconocido"
+    },
+    "connectionLost": "⚠️ Conexión perdida. Intentando reconectar...",
+    "cancelConfirm": "¿Está seguro de que desea cancelar este trabajo?",
+    "errorPrefix": "Error:",
+    "stagePrefix": "Etapa:",
+    "loadingText": "Cargando...",
+    "waitingText": "Esperando...",
+    "summaryTitle": "Resumen:",
+    "duplicatesFound": "• Duplicados encontrados: {{count}}",
+    "duplicatesResolved": "• Duplicados resueltos: {{count}}",
+    "totalBookmarks": "• Total de marcadores: {{count}}",
+    "runtime": "• Tiempo de ejecución: {{seconds}}s"
+  },
+  "jobHistory": {
+    "loading": "Cargando historial de trabajos...",
+    "refresh": "Actualizar",
+    "noHistory": "No hay historial de trabajos disponible",
+    "details": "Detalles del Trabajo",
+    "exportReport": "Exportar Informe",
+    "jobId": "ID del Trabajo",
+    "created": "Creado",
+    "started": "Iniciado",
+    "completed": "Completado",
+    "requestedBy": "Solicitado Por",
+    "error": "Error",
+    "duplicatesFound": "{{count}} duplicados encontrados",
+    "runtime": "{{seconds}}s tiempo de ejecución",
+    "exportSuccess": "Informe exportado exitosamente",
+    "exportError": "Falló al exportar el informe"
+  },
+  "accessibility": {
+    "mainNavigation": "Navegación principal",
+    "progressIndicator": "Indicador de progreso del trabajo",
+    "loadingState": "Cargando contenido",
+    "buttonFocus": "Botón enfocado",
+    "expandedDetails": "Detalles del trabajo expandidos",
+    "collapsedDetails": "Detalles del trabajo contraídos"
+  }
+}

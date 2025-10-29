@@ -1,14 +1,208 @@
 import { render, screen } from '@testing-library/react';
 import userEvent from '@testing-library/user-event';
-import { describe, it, expect, vi, afterEach } from 'vitest';
+import { describe, it, expect, vi, afterEach, beforeEach } from 'vitest';
 import { ProgressHeader } from '../ProgressHeader';
 import * as useJobModule from '../../hooks/useJob';
+import * as useAccessibilityModule from '../../hooks/useAccessibility';
+import * as useI18nModule from '../../i18n';
+import * as useDesignSystemModule from '../../hooks/useDesignSystem';
 
 afterEach(() => {
   vi.clearAllMocks();
 });
 
 describe('[ProgressHeader](popup/src/components/ProgressHeader.tsx:1)', () => {
+  beforeEach(() => {
+    // Mock accessibility hook
+    vi.spyOn(useAccessibilityModule, 'useAccessibility').mockReturnValue({
+      prefersReducedMotion: false,
+      prefersHighContrast: false,
+      screenReaderEnabled: false,
+      announceToScreenReader: vi.fn(),
+    });
+
+    // Mock i18n hook
+    vi.spyOn(useI18nModule, 'useI18n').mockReturnValue({
+      t: vi.fn((key: string) => {
+        const translations: Record<string, string> = {
+          'jobProgress.errorPrefix': 'Error:',
+          'jobProgress.status.running': 'Running',
+          'jobProgress.status.paused': 'Paused',
+          'jobProgress.status.completed': 'Completed',
+          'jobProgress.status.failed': 'Failed',
+          'jobProgress.stageLabel': 'Stage:',
+          'jobProgress.stagePrefix': 'Stage:',
+          'jobProgress.pause': 'Pause',
+          'jobProgress.resume': 'Resume',
+          'jobProgress.cancel': 'Cancel',
+          'jobProgress.summaryTitle': 'Summary',
+          'jobProgress.pauseJob': 'Pause',
+          'jobProgress.resumeJob': 'Resume',
+          'jobProgress.cancelJob': 'Cancel',
+          'jobProgress.stages.resolving': 'Resolving',
+          'jobProgress.stages.scanning': 'Scanning',
+          'jobProgress.stages.verifying': 'Verifying',
+        };
+        return translations[key] || key;
+      }),
+      formatTime: vi.fn(),
+      formatDate: vi.fn(),
+    });
+
+    // Mock design system hook
+    vi.spyOn(useDesignSystemModule, 'useDesignSystem').mockReturnValue({
+      tokens: {
+        typography: {
+          fontCaption: '12px',
+          fontBody: '14px',
+          fontBodyLarge: '18px',
+          fontSubtitle: '20px',
+          fontTitle: '28px',
+          lineCaption: '16px',
+          lineBody: '20px',
+          lineBodyLarge: '24px',
+          lineSubtitle: '28px',
+          lineTitle: '36px',
+          weightRegular: 400,
+          weightSemibold: 600,
+          fontFamily: "'Segoe UI Variable', 'Segoe UI', sans-serif",
+        },
+        spacing: {
+          xs: '4px',
+          sm: '8px',
+          md: '12px',
+          lg: '16px',
+          xl: '20px',
+          xxl: '24px',
+          xxxl: '32px',
+        },
+        colors: {
+          text: '#1a1a1a',
+          textSecondary: '#555',
+          textMuted: '#666',
+          primary: '#0078d4',
+          primaryHover: '#005a9e',
+          success: '#107c10',
+          warning: '#ff8c00',
+          error: '#d13438',
+          danger: '#d13438',
+          background: '#ffffff',
+          backgroundSecondary: '#f5f5f5',
+          border: '#e1e1e1',
+          borderLight: '#e1e1e1',
+          white: '#ffffff',
+        },
+        borderRadius: {
+          sm: '2px',
+          md: '4px',
+          medium: '4px',
+          lg: '8px',
+        },
+        shadows: {
+          sm: '0 1px 3px rgba(0,0,0,0.12)',
+          md: '0 4px 6px rgba(0,0,0,0.07)',
+          lg: '0 10px 25px rgba(0,0,0,0.1)',
+        },
+        transitions: {
+          fast: '150ms ease-in-out',
+          normal: '250ms ease-in-out',
+          slow: '350ms ease-in-out',
+        },
+      },
+      utils: {
+        flex: vi.fn(),
+        button: {
+          primary: vi.fn(() => ({
+            backgroundColor: '#0078d4',
+            color: '#ffffff',
+            border: 'none',
+            padding: '8px 16px',
+            borderRadius: '4px',
+            fontSize: '14px',
+            fontWeight: 600,
+            lineHeight: '20px',
+            cursor: 'pointer',
+            fontFamily: "'Segoe UI Variable', 'Segoe UI', sans-serif",
+            transition: 'all 0.25s ease-in-out',
+          })),
+          secondary: vi.fn(() => ({
+            backgroundColor: 'transparent',
+            color: '#0078d4',
+            border: '1px solid #e1e1e1',
+            padding: '8px 16px',
+            borderRadius: '4px',
+            fontSize: '14px',
+            fontWeight: 600,
+            lineHeight: '20px',
+            cursor: 'pointer',
+            fontFamily: "'Segoe UI Variable', 'Segoe UI', sans-serif",
+            transition: 'all 0.25s ease-in-out',
+          })),
+          danger: vi.fn(() => ({
+            backgroundColor: '#d13438',
+            color: '#ffffff',
+            border: 'none',
+            padding: '8px 16px',
+            borderRadius: '4px',
+            fontSize: '14px',
+            fontWeight: 600,
+            lineHeight: '20px',
+            cursor: 'pointer',
+            fontFamily: "'Segoe UI Variable', 'Segoe UI', sans-serif",
+            transition: 'all 0.25s ease-in-out',
+          })),
+        },
+        input: {
+          text: vi.fn(() => ({
+            width: '100%',
+            padding: '8px 12px',
+            border: '1px solid #e1e1e1',
+            borderRadius: '4px',
+            fontSize: '14px',
+            lineHeight: '20px',
+            fontFamily: "'Segoe UI Variable', 'Segoe UI', sans-serif",
+            transition: '0.15s ease-in-out',
+            outline: 'none',
+          })),
+        },
+        card: vi.fn(),
+        typography: {
+          caption: vi.fn(() => ({
+            fontSize: '12px',
+            lineHeight: '16px',
+            fontWeight: 400,
+            fontFamily: "'Segoe UI Variable', 'Segoe UI', sans-serif",
+          })),
+          body: vi.fn(() => ({
+            fontSize: '14px',
+            lineHeight: '20px',
+            fontWeight: 400,
+            fontFamily: "'Segoe UI Variable', 'Segoe UI', sans-serif",
+          })),
+          bodyLarge: vi.fn(() => ({
+            fontSize: '18px',
+            lineHeight: '24px',
+            fontWeight: 400,
+            fontFamily: "'Segoe UI Variable', 'Segoe UI', sans-serif",
+          })),
+          subtitle: vi.fn(() => ({
+            fontSize: '20px',
+            lineHeight: '28px',
+            fontWeight: 600,
+            fontFamily: "'Segoe UI Variable', 'Segoe UI', sans-serif",
+          })),
+          title: vi.fn(() => ({
+            fontSize: '28px',
+            lineHeight: '36px',
+            fontWeight: 600,
+            fontFamily: "'Segoe UI Variable', 'Segoe UI', sans-serif",
+          })),
+        },
+      },
+      cssCustomProperties: {},
+    });
+  });
+
   it('renders Running state with Pause/Cancel and correct stage/progress', async () => {
     const dispatch = vi.fn();
     vi.spyOn(useJobModule, 'useJob').mockReturnValue({

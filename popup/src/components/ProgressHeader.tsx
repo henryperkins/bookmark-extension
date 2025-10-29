@@ -1,52 +1,17 @@
 import { useJob } from '../hooks/useJob';
+import { useI18n } from '../i18n';
+import { useAccessibility } from '../hooks/useAccessibility';
+import { useDesignSystem } from '../hooks/useDesignSystem';
+import { AccessibilityAnnouncer } from './AccessibilityAnnouncer';
+import { useEffect } from 'react';
+import designTokens from '../styles/designSystem';
 
-// Design system (matching App.tsx)
-const styles = {
-  typography: {
-    fontBody: '14px',
-    fontCaption: '12px',
-    lineBody: '20px',
-    lineCaption: '16px',
-    weightRegular: 400,
-    weightSemibold: 600,
-  },
-  spacing: {
-    xs: '4px',
-    sm: '8px',
-    md: '12px',
-    lg: '16px',
-  },
-  colors: {
-    text: '#1a1a1a',
-    textSecondary: '#555',
-    textMuted: '#666',
-    primary: '#0078d4',
-    primaryHover: '#005a9e',
-    success: '#107c10',
-    danger: '#d13438',
-    dangerHover: '#a52a2d',
-    border: '#c7c7c7',
-    borderLight: '#e0e0e0',
-    background: '#f9f9f9',
-    white: '#ffffff',
-  },
-} as const;
 
-// Stage display names (fallback if not in STAGE_CONFIGS)
-const STAGE_NAMES: Record<string, string> = {
-  initializing: 'Initializing',
-  scanning: 'Scanning',
-  grouping: 'Grouping',
-  resolving: 'Resolving',
-  verifying: 'Verifying',
-  summarizing: 'Summarizing',
-  'parse-html': 'Parsing HTML',
-  'create-bookmarks': 'Creating Bookmarks',
-  'enrich-bookmarks': 'Enriching Bookmarks',
-  'testingConnection': 'Testing Connection',
-};
 
 export function ProgressHeader() {
+  const { t } = useI18n();
+  const { prefersReducedMotion, announceToScreenReader } = useAccessibility();
+  const { utils, tokens } = useDesignSystem();
   const {
     snapshot,
     isRunning,
@@ -67,50 +32,61 @@ export function ProgressHeader() {
     return null;
   }
 
-  const stageName = currentStage ? STAGE_NAMES[currentStage] || currentStage : 'Unknown';
+  const stageName = currentStage ? t(`jobProgress.stages.${currentStage}`) || currentStage : t('jobProgress.status.unknown');
   const progressPercent = Math.round(progress);
   const isIndeterminate = snapshot.indeterminate;
 
+  // Announce job status changes to screen readers
+  useEffect(() => {
+    if (isComplete) {
+      announceToScreenReader(t('jobProgress.status.completed'), 'assertive');
+    } else if (isFailed) {
+      announceToScreenReader(t('jobProgress.status.failed'), 'assertive');
+    } else if (isRunning && currentStage) {
+      announceToScreenReader(`${t('jobProgress.status.running')}: ${stageName}`, 'polite');
+    }
+  }, [isComplete, isFailed, isRunning, currentStage, stageName, t, announceToScreenReader]);
+
   // Determine status color and text
-  let statusColor: string = styles.colors.textSecondary;
+  let statusColor: string = tokens.colors.textSecondary;
   let statusText: string = snapshot.status;
 
   if (isRunning) {
-    statusColor = styles.colors.primary;
-    statusText = 'Running';
+    statusColor = tokens.colors.primary;
+    statusText = t('jobProgress.status.running');
   } else if (isPaused) {
-    statusColor = styles.colors.textMuted;
-    statusText = 'Paused';
+    statusColor = tokens.colors.textMuted;
+    statusText = t('jobProgress.status.paused');
   } else if (isComplete) {
-    statusColor = styles.colors.success;
-    statusText = 'Completed';
+    statusColor = tokens.colors.success;
+    statusText = t('jobProgress.status.completed');
   } else if (isFailed) {
-    statusColor = styles.colors.danger;
-    statusText = 'Failed';
+    statusColor = tokens.colors.danger;
+    statusText = t('jobProgress.status.failed');
   }
 
   return (
     <div
       style={{
-        padding: styles.spacing.lg,
-        borderBottom: `1px solid ${styles.colors.borderLight}`,
-        backgroundColor: styles.colors.white,
+        padding: tokens.spacing.lg,
+        borderBottom: `1px solid ${tokens.colors.borderLight}`,
+        backgroundColor: tokens.colors.white,
       }}
     >
       {/* Connection status */}
       {!isConnected && (
         <div
           style={{
-            marginBottom: styles.spacing.sm,
-            padding: styles.spacing.sm,
+            marginBottom: tokens.spacing.sm,
+            padding: tokens.spacing.sm,
             backgroundColor: '#fff4ce',
             border: '1px solid #ffb900',
-            borderRadius: '4px',
-            fontSize: styles.typography.fontCaption,
-            color: styles.colors.text,
+            borderRadius: tokens.borderRadius.medium,
+            ...utils.typography.caption(),
+            color: tokens.colors.text,
           }}
         >
-          ⚠️ Connection lost. Trying to reconnect...
+          {t('jobProgress.connectionLost')}
         </div>
       )}
 
@@ -119,16 +95,16 @@ export function ProgressHeader() {
         <div
           role="alert"
           style={{
-            marginBottom: styles.spacing.sm,
-            padding: styles.spacing.sm,
+            marginBottom: tokens.spacing.sm,
+            padding: tokens.spacing.sm,
             backgroundColor: '#fde7e9',
-            border: `1px solid ${styles.colors.danger}`,
-            borderRadius: '4px',
-            fontSize: styles.typography.fontCaption,
-            color: styles.colors.danger,
+            border: `1px solid ${tokens.colors.danger}`,
+            borderRadius: tokens.borderRadius.medium,
+            ...utils.typography.caption(),
+            color: tokens.colors.danger,
           }}
         >
-          <strong>Error:</strong> {error || snapshot.error}
+          <strong>{t('jobProgress.errorPrefix')}</strong> {error || snapshot.error}
         </div>
       )}
 
@@ -138,15 +114,15 @@ export function ProgressHeader() {
           display: 'flex',
           justifyContent: 'space-between',
           alignItems: 'center',
-          marginBottom: styles.spacing.sm,
+          marginBottom: tokens.spacing.sm,
         }}
       >
         {/* Status and stage */}
         <div>
           <div
             style={{
-              fontSize: styles.typography.fontBody,
-              fontWeight: styles.typography.weightSemibold,
+              ...utils.typography.body(),
+              fontWeight: designTokens.typography.weightSemibold,
               color: statusColor,
               marginBottom: '2px',
             }}
@@ -155,88 +131,59 @@ export function ProgressHeader() {
           </div>
           <div
             style={{
-              fontSize: styles.typography.fontCaption,
-              color: styles.colors.textMuted,
-              lineHeight: styles.typography.lineCaption,
+              ...utils.typography.caption(),
+              color: tokens.colors.textMuted,
+              lineHeight: tokens.typography.lineCaption,
             }}
           >
-            Stage: {stageName}
+            {t('jobProgress.stagePrefix')} {stageName}
           </div>
         </div>
 
         {/* Control buttons */}
         {isActive && (
-          <div style={{ display: 'flex', gap: styles.spacing.sm }}>
+          <div style={{ display: 'flex', gap: tokens.spacing.sm }}>
             {isRunning && (
               <button
                 onClick={() => dispatch('PAUSE_JOB')}
                 style={{
-                  padding: `${styles.spacing.xs} ${styles.spacing.md}`,
-                  fontSize: styles.typography.fontCaption,
-                  fontWeight: styles.typography.weightSemibold,
-                  color: styles.colors.white,
-                  backgroundColor: styles.colors.textSecondary,
-                  border: 'none',
-                  borderRadius: '4px',
-                  cursor: 'pointer',
+                  ...utils.button.secondary({
+                    padding: `${tokens.spacing.xs} ${tokens.spacing.md}`,
+                  }),
+                  backgroundColor: tokens.colors.textSecondary,
+                  color: tokens.colors.white,
                 }}
-                aria-label="Pause job"
+                aria-label={t('jobProgress.pauseJob')}
               >
-                Pause
+                {t('jobProgress.pauseJob')}
               </button>
             )}
 
             {isPaused && (
               <button
                 onClick={() => dispatch('RESUME_JOB')}
-                style={{
-                  padding: `${styles.spacing.xs} ${styles.spacing.md}`,
-                  fontSize: styles.typography.fontCaption,
-                  fontWeight: styles.typography.weightSemibold,
-                  color: styles.colors.white,
-                  backgroundColor: styles.colors.primary,
-                  border: 'none',
-                  borderRadius: '4px',
-                  cursor: 'pointer',
-                }}
-                onMouseOver={(e) => {
-                  e.currentTarget.style.backgroundColor = styles.colors.primaryHover;
-                }}
-                onMouseOut={(e) => {
-                  e.currentTarget.style.backgroundColor = styles.colors.primary;
-                }}
-                aria-label="Resume job"
+                style={utils.button.primary({
+                  padding: `${tokens.spacing.xs} ${tokens.spacing.md}`,
+                })}
+                aria-label={t('jobProgress.resumeJob')}
               >
-                Resume
+                {t('jobProgress.resumeJob')}
               </button>
             )}
 
             {(isRunning || isPaused) && (
               <button
                 onClick={() => {
-                  if (confirm('Are you sure you want to cancel this job?')) {
+                  if (confirm(t('jobProgress.cancelConfirm'))) {
                     dispatch('CANCEL_JOB');
                   }
                 }}
-                style={{
-                  padding: `${styles.spacing.xs} ${styles.spacing.md}`,
-                  fontSize: styles.typography.fontCaption,
-                  fontWeight: styles.typography.weightSemibold,
-                  color: styles.colors.white,
-                  backgroundColor: styles.colors.danger,
-                  border: 'none',
-                  borderRadius: '4px',
-                  cursor: 'pointer',
-                }}
-                onMouseOver={(e) => {
-                  e.currentTarget.style.backgroundColor = styles.colors.dangerHover;
-                }}
-                onMouseOut={(e) => {
-                  e.currentTarget.style.backgroundColor = styles.colors.danger;
-                }}
-                aria-label="Cancel job"
+                style={utils.button.danger({
+                  padding: `${tokens.spacing.xs} ${tokens.spacing.md}`,
+                })}
+                aria-label={t('jobProgress.cancelJob')}
               >
-                Cancel
+                {t('jobProgress.cancelJob')}
               </button>
             )}
           </div>
@@ -246,7 +193,7 @@ export function ProgressHeader() {
       {/* Progress bar */}
       <div
         style={{
-          marginBottom: styles.spacing.xs,
+          marginBottom: tokens.spacing.xs,
         }}
       >
         <div
@@ -254,13 +201,13 @@ export function ProgressHeader() {
           aria-valuemin={0}
           aria-valuemax={100}
           aria-valuenow={isIndeterminate ? undefined : progressPercent}
-          aria-valuetext={isIndeterminate ? 'Loading...' : `${progressPercent}% complete`}
+          aria-valuetext={isIndeterminate ? t('jobProgress.loadingText') : `${progressPercent}% complete`}
           aria-live="polite"
           style={{
             width: '100%',
             height: '8px',
-            backgroundColor: styles.colors.borderLight,
-            borderRadius: '4px',
+            backgroundColor: tokens.colors.borderLight,
+            borderRadius: tokens.borderRadius.medium,
             overflow: 'hidden',
             position: 'relative',
           }}
@@ -269,9 +216,9 @@ export function ProgressHeader() {
             style={{
               height: '100%',
               width: isIndeterminate ? '100%' : `${progressPercent}%`,
-              backgroundColor: isComplete ? styles.colors.success : isFailed ? styles.colors.danger : styles.colors.primary,
-              transition: 'width 0.3s ease-in-out',
-              animation: isIndeterminate ? 'pulse 1.5s ease-in-out infinite' : 'none',
+              backgroundColor: isComplete ? tokens.colors.success : isFailed ? tokens.colors.danger : tokens.colors.primary,
+              transition: prefersReducedMotion ? 'none' : `width ${tokens.transitions.normal}`,
+              animation: isIndeterminate && !prefersReducedMotion ? 'pulse 1.5s ease-in-out infinite' : 'none',
             }}
           />
         </div>
@@ -281,22 +228,23 @@ export function ProgressHeader() {
       <div
         aria-live="polite"
         style={{
-          fontSize: styles.typography.fontCaption,
-          color: styles.colors.textMuted,
-          lineHeight: styles.typography.lineCaption,
+          ...utils.typography.caption(),
+          color: tokens.colors.textMuted,
+          lineHeight: tokens.typography.lineCaption,
         }}
       >
-        {currentActivity || 'Waiting...'}
+        {currentActivity || t('jobProgress.waitingText')}
       </div>
 
       {/* Progress percentage */}
       {!isIndeterminate && (
         <div
           style={{
-            marginTop: styles.spacing.xs,
-            fontSize: styles.typography.fontCaption,
-            color: styles.colors.textSecondary,
-            fontWeight: styles.typography.weightSemibold,
+            marginTop: tokens.spacing.xs,
+            ...utils.typography.caption({
+              color: tokens.colors.textSecondary,
+              fontWeight: tokens.typography.weightSemibold,
+            }),
           }}
         >
           {progressPercent}%
@@ -307,35 +255,60 @@ export function ProgressHeader() {
       {isComplete && snapshot.summary && (
         <div
           style={{
-            marginTop: styles.spacing.sm,
-            padding: styles.spacing.sm,
-            backgroundColor: styles.colors.background,
+            marginTop: tokens.spacing.sm,
+            padding: tokens.spacing.sm,
+            backgroundColor: tokens.colors.background,
             borderRadius: '4px',
-            fontSize: styles.typography.fontCaption,
-            color: styles.colors.text,
+            fontSize: tokens.typography.fontCaption,
+            color: tokens.colors.text,
           }}
         >
-          <strong>Summary:</strong>
+          <strong>{t('jobProgress.summaryTitle')}</strong>
           {snapshot.summary.duplicatesFound !== undefined && (
-            <div>• Duplicates found: {snapshot.summary.duplicatesFound}</div>
+            <div>{t('jobProgress.duplicatesFound', { count: snapshot.summary.duplicatesFound })}</div>
           )}
           {snapshot.summary.duplicatesResolved !== undefined && (
-            <div>• Duplicates resolved: {snapshot.summary.duplicatesResolved}</div>
+            <div>{t('jobProgress.duplicatesResolved', { count: snapshot.summary.duplicatesResolved })}</div>
           )}
           {snapshot.summary.totalBookmarks !== undefined && (
-            <div>• Total bookmarks: {snapshot.summary.totalBookmarks}</div>
+            <div>{t('jobProgress.totalBookmarks', { count: snapshot.summary.totalBookmarks })}</div>
           )}
           {snapshot.summary.runtimeMs !== undefined && (
-            <div>• Runtime: {Math.round(snapshot.summary.runtimeMs / 1000)}s</div>
+            <div>{t('jobProgress.runtime', { seconds: Math.round(snapshot.summary.runtimeMs / 1000) })}</div>
           )}
         </div>
       )}
+
+      {/* Accessibility announcements for screen readers */}
+      <AccessibilityAnnouncer
+        message={
+          isComplete
+            ? t('jobProgress.status.completed')
+            : isFailed
+            ? t('jobProgress.status.failed')
+            : isRunning
+            ? `${t('jobProgress.status.running')}: ${stageName}`
+            : isPaused
+            ? t('jobProgress.status.paused')
+            : ''
+        }
+        priority={isComplete || isFailed ? 'assertive' : 'polite'}
+      />
 
       {/* Add pulse animation for indeterminate state */}
       <style>{`
         @keyframes pulse {
           0%, 100% { opacity: 0.6; }
           50% { opacity: 1; }
+        }
+
+        /* Reduced motion support */
+        @media (prefers-reduced-motion: reduce) {
+          * {
+            animation-duration: 0.01ms !important;
+            animation-iteration-count: 1 !important;
+            transition-duration: 0.01ms !important;
+          }
         }
       `}</style>
     </div>

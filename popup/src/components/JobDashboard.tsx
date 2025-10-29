@@ -4,6 +4,7 @@ import { StageList } from './StageList';
 import { ActivityFeed } from './ActivityFeed';
 import { MetricsPanel } from './MetricsPanel';
 import { ReportModal } from './ReportModal';
+import { JobHistory } from './JobHistory';
 
 // Design system (matching App.tsx)
 const styles = {
@@ -47,7 +48,7 @@ export function JobDashboard({
   showReportButton = true
 }: JobDashboardProps) {
   const { snapshot, isComplete, isFailed } = useJob();
-  const [activeView, setActiveView] = useState<'overview' | 'stages' | 'activity' | 'metrics'>('overview');
+  const [activeView, setActiveView] = useState<'overview' | 'stages' | 'activity' | 'metrics' | 'history'>('overview');
   const [isReportModalOpen, setIsReportModalOpen] = useState(false);
 
   // Don't render if no job is active
@@ -131,10 +132,30 @@ export function JobDashboard({
                   { key: 'stages', label: 'Stages' },
                   { key: 'activity', label: 'Activity' },
                   { key: 'metrics', label: 'Metrics' },
+                  { key: 'history', label: 'History' },
                 ].map(({ key, label }) => (
                   <button
                     key={key}
-                    onClick={() => setActiveView(key as any)}
+                    onClick={() => setActiveView(key as 'overview' | 'stages' | 'activity' | 'metrics' | 'history')}
+                    onKeyDown={(e) => {
+                      if (e.key === 'Enter' || e.key === ' ') {
+                        e.preventDefault();
+                        setActiveView(key as 'overview' | 'stages' | 'activity' | 'metrics' | 'history');
+                      } else if (e.key === 'ArrowLeft' || e.key === 'ArrowRight') {
+                        e.preventDefault();
+                        const views: Array<'overview' | 'stages' | 'activity' | 'metrics' | 'history'> = ['overview', 'stages', 'activity', 'metrics', 'history'];
+                        const currentIndex = views.indexOf(key as any);
+                        let nextIndex;
+                        
+                        if (e.key === 'ArrowLeft') {
+                          nextIndex = (currentIndex - 1 + views.length) % views.length;
+                        } else { // ArrowRight
+                          nextIndex = (currentIndex + 1) % views.length;
+                        }
+                        
+                        setActiveView(views[nextIndex]);
+                      }
+                    }}
                     style={{
                       padding: `${styles.spacing.xs} ${styles.spacing.sm}`,
                       fontSize: styles.typography.fontCaption,
@@ -159,6 +180,7 @@ export function JobDashboard({
                     role="tab"
                     aria-selected={activeView === key}
                     aria-controls={`${key}-panel`}
+                    tabIndex={activeView === key ? 0 : -1}
                   >
                     {label}
                   </button>
@@ -318,6 +340,19 @@ export function JobDashboard({
               showPerformance={true}
               compact={false}
             />
+          </div>
+        )}
+        {activeView === 'history' && (
+          <div
+            id="history-panel"
+            role="tabpanel"
+            style={{
+              height: '100%',
+              overflow: 'auto',
+              padding: 0, // JobHistory component handles its own padding
+            }}
+          >
+            <JobHistory />
           </div>
         )}
       </div>

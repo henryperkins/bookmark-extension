@@ -81,6 +81,8 @@
  *     requestedAt: string;
  *     schedule?: Record<string, unknown> | null;
  *   };
+ *   stageOrder?: StageId[];
+ *   stageWeights?: Record<string, number>;
  * }} JobSnapshot
  */
 

@@ -425,13 +425,17 @@ export class JobStore {
   /**
    * Add job to history for tracking
    */
-  async addToHistory(jobId) {
+  async addToHistory(jobSnapshot) {
     try {
       const result = await chrome.storage.local.get(this.KEYS.HISTORY);
       const history = result[this.KEYS.HISTORY] || [];
       
-      // Add new entry
-      history.push({ jobId, timestamp: Date.now() });
+      // Add new entry with the full job snapshot
+      const historyEntry = {
+        ...jobSnapshot,
+        historyTimestamp: Date.now() // Keep track of when it was added to history
+      };
+      history.push(historyEntry);
       
       // Trim to max history size
       const maxHistory = Number.isFinite(this.options.maxQueueHistory) ? this.options.maxQueueHistory : DEFAULT_STORE_OPTIONS.maxQueueHistory;
@@ -455,6 +459,19 @@ export class JobStore {
     } catch (error) {
       console.error('Failed to get job history:', error);
       return [];
+    }
+  }
+
+  /**
+   * Get a specific job from history by ID
+   */
+  async getJobFromHistory(jobId) {
+    try {
+      const history = await this.getHistory();
+      return history.find(entry => entry.jobId === jobId) || null;
+    } catch (error) {
+      console.error('Failed to get job from history:', error);
+      return null;
     }
   }
 

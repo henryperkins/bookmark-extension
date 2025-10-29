@@ -1,0 +1,16 @@
+{
+  "name": "bookmark-extension-e2e-tests",
+  "version": "1.0.0",
+  "description": "End-to-end tests for the bookmark extension",
+  "scripts": {
+    "test": "playwright test",
+    "test:headed": "playwright test --headed",
+    "test:ui": "playwright test --ui",
+    "test:debug": "playwright test --debug",
+    "test:report": "playwright show-report",
+    "install:browsers": "playwright install"
+  },
+  "devDependencies": {
+    "@playwright/test": "^1.40.0"
+  }
+}

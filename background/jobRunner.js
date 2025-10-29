@@ -189,6 +189,10 @@ export class JobRunner {
           const activity = await this.jobStore.loadActivity(activityLimit);
           return { success: true, activity };
 
+        case 'GET_JOB_HISTORY':
+          const history = await this.jobStore.getHistory();
+          return { success: true, history };
+
         default:
           return { success: false, error: `Unknown command: ${command}` };
       }
@@ -525,6 +529,12 @@ export class JobRunner {
     }
 
     await this.jobStore.saveSnapshot(this.currentJob);
+    
+    // If job is completed or cancelled, add it to history and clear the snapshot
+    if (status === 'completed' || status === 'cancelled') {
+      await this.jobStore.addToHistory(this.currentJob);
+      await this.jobStore.clearSnapshot(); // Clear the snapshot since the job is done
+    }
 
     // Publish jobStatus event for backward compatibility with existing listeners
     // (UI, storage fallbacks, etc. still expect this event type)

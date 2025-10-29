@@ -1,4 +1,4 @@
-import { useState } from 'react';
+import { useState, useEffect, useRef } from 'react';
 import { useJob } from '../hooks/useJob';
 
 // Design system (matching other components)
@@ -47,6 +47,54 @@ export function ReportModal({ isOpen, onClose }: ReportModalProps) {
   const [exportStatus, setExportStatus] = useState<ExportStatus>('idle');
   const [errorMessage, setErrorMessage] = useState<string>('');
   const [exportData, setExportData] = useState<{ url: string; filename: string } | null>(null);
+  const [includeActivity, setIncludeActivity] = useState<boolean>(true);
+  const [redactUrls, setRedactUrls] = useState<boolean>(false);
+  const [includeTimestamps, setIncludeTimestamps] = useState<boolean>(true);
+  
+  const modalRef = useRef<HTMLDivElement>(null);
+  const firstFocusableRef = useRef<HTMLElement | null>(null);
+  const lastFocusableRef = useRef<HTMLElement | null>(null);
+
+  // Focus trap effect
+  useEffect(() => {
+    if (isOpen && modalRef.current) {
+      // Find all focusable elements
+      const focusableElements = modalRef.current.querySelectorAll(
+        'button, [href], input, select, textarea, [tabindex]:not([tabindex="-1"])'
+      ) as NodeListOf<HTMLElement>;
+      
+      firstFocusableRef.current = focusableElements[0] || null;
+      lastFocusableRef.current = focusableElements[focusableElements.length - 1] || null;
+      
+      // Focus the first element if modal is open
+      if (firstFocusableRef.current) {
+        firstFocusableRef.current.focus();
+      }
+    }
+  }, [isOpen]);
+
+  // Handle keyboard navigation for focus trapping
+  useEffect(() => {
+    const handleKeyDown = (e: KeyboardEvent) => {
+      if (e.key !== 'Tab') return;
+      
+      if (lastFocusableRef.current && e.target === lastFocusableRef.current && !e.shiftKey) {
+        e.preventDefault();
+        if (firstFocusableRef.current) firstFocusableRef.current.focus();
+      } else if (firstFocusableRef.current && e.target === firstFocusableRef.current && e.shiftKey) {
+        e.preventDefault();
+        if (lastFocusableRef.current) lastFocusableRef.current.focus();
+      }
+    };
+
+    if (isOpen) {
+      document.addEventListener('keydown', handleKeyDown);
+    }
+
+    return () => {
+      document.removeEventListener('keydown', handleKeyDown);
+    };
+  }, [isOpen]);
 
   if (!isOpen || !snapshot) {
     return null;
@@ -67,8 +115,8 @@ export function ReportModal({ isOpen, onClose }: ReportModalProps) {
         payload: {
           format: selectedFormat,
           jobId: snapshot.jobId,
-          includeActivity: true,
-          redactUrls: false, // Could be a setting
+          includeActivity: includeActivity,
+          redactUrls: redactUrls,
         },
       });
 
@@ -151,6 +199,21 @@ export function ReportModal({ isOpen, onClose }: ReportModalProps) {
       aria-modal="true"
       aria-labelledby="report-modal-title"
     >
+      <div
+        ref={modalRef}
+        style={{
+          backgroundColor: styles.colors.white,
+          borderRadius: '8px',
+          boxShadow: '0 4px 20px rgba(0, 0, 0, 0.15)',
+          maxWidth: '500px',
+          width: '100%',
+          maxHeight: '80vh',
+          overflow: 'hidden',
+          display: 'flex',
+          flexDirection: 'column',
+        }}
+        onClick={(e) => e.stopPropagation()}
+      >
       <div
         style={{
           backgroundColor: styles.colors.white,
@@ -429,7 +492,8 @@ export function ReportModal({ isOpen, onClose }: ReportModalProps) {
               <label style={{ display: 'flex', alignItems: 'center', gap: styles.spacing.sm }}>
                 <input
                   type="checkbox"
-                  defaultChecked={true}
+                  checked={includeActivity}
+                  onChange={(e) => setIncludeActivity(e.target.checked)}
                   style={{ margin: 0 }}
                 />
                 <span style={{ fontSize: styles.typography.fontBody }}>
@@ -440,7 +504,8 @@ export function ReportModal({ isOpen, onClose }: ReportModalProps) {
               <label style={{ display: 'flex', alignItems: 'center', gap: styles.spacing.sm }}>
                 <input
                   type="checkbox"
-                  defaultChecked={false}
+                  checked={redactUrls}
+                  onChange={(e) => setRedactUrls(e.target.checked)}
                   style={{ margin: 0 }}
                 />
                 <span style={{ fontSize: styles.typography.fontBody }}>
@@ -451,7 +516,8 @@ export function ReportModal({ isOpen, onClose }: ReportModalProps) {
               <label style={{ display: 'flex', alignItems: 'center', gap: styles.spacing.sm }}>
                 <input
                   type="checkbox"
-                  defaultChecked={true}
+                  checked={includeTimestamps}
+                  onChange={(e) => setIncludeTimestamps(e.target.checked)}
                   style={{ margin: 0 }}
                 />
                 <span style={{ fontSize: styles.typography.fontBody }}>

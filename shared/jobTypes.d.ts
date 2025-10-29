@@ -33,7 +33,8 @@ export type JobCommand =
   | 'RESUME_JOB'
   | 'CANCEL_JOB'
   | 'GET_JOB_STATUS'
-  | 'GET_ACTIVITY_LOG';
+  | 'GET_ACTIVITY_LOG'
+  | 'EXPORT_REPORT';
 
 export interface StageUnits {
   processed: number;
@@ -78,6 +79,8 @@ export interface JobSnapshot {
   summary?: JobSummary;
   error?: string;
   queueMeta?: QueueMeta;
+  stageOrder?: StageId[];
+  stageWeights?: Record<string, number>;
 }
 
 export interface JobActivity {

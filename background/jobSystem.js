@@ -338,8 +338,205 @@ export const JobSystemCommands = {
       return { success: true, activity: result.activity };
     }
     return { success: false, error: result.error };
+  },
+
+  /**
+   * Get job history
+   */
+  async getJobHistory() {
+    const jobSystem = getJobSystem();
+    if (!jobSystem) {
+      return { success: false, error: 'Job system not initialized' };
+    }
+
+    const jobStore = jobSystem.store;
+    const history = await jobStore.getHistory();
+    return { success: true, history };
+  },
+
+  /**
+   * Export a job report in specified format
+   */
+  async exportReport(options) {
+    const { format = 'json', jobId, includeActivity = true, redactUrls = false } = options || {};
+
+    try {
+      // Get job data
+      const jobSystem = getJobSystem();
+      if (!jobSystem) {
+        return { success: false, error: 'Job system not initialized' };
+      }
+
+      // Get job snapshot
+      let snapshot = null;
+      if (jobId) {
+        // Try to get current job
+        const currentJob = jobSystem.getCurrentJob();
+        if (currentJob && currentJob.jobId === jobId) {
+          // currentJob is already a snapshot object, not a class with getSnapshot()
+          snapshot = { ...currentJob };
+        } else {
+          // Try to get from job store history
+          const jobStore = getJobStore();
+          const jobInHistory = await jobStore.getJobFromHistory(jobId);
+
+          if (!jobInHistory) {
+            return {
+              success: false,
+              error: 'Job not found. Could not find active or completed job with that ID.'
+            };
+          }
+
+          snapshot = jobInHistory;
+        }
+      }
+
+      if (!snapshot) {
+        return { success: false, error: 'Job not found' };
+      }
+
+      // Get activity log if requested
+      let activity = [];
+      if (includeActivity) {
+        const activityResult = await jobSystem.handleCommand('GET_ACTIVITY_LOG', { limit: 100 });
+        if (activityResult.success) {
+          activity = activityResult.activity.filter((a) => a.jobId === jobId);
+        }
+      }
+
+      // Generate report based on format
+      const report = generateReport(snapshot, activity, format, redactUrls);
+      const filename = `job-report-${jobId}.${format}`;
+
+      // Create blob URL for download
+      const blob = new Blob([report], { type: getContentType(format) });
+      const downloadUrl = URL.createObjectURL(blob);
+
+      return {
+        success: true,
+        downloadUrl,
+        filename
+      };
+    } catch (error) {
+      console.error('Export report failed:', error);
+      return { success: false, error: error.message || 'Export failed' };
+    }
   }
 };
+
+/**
+ * Helper functions for report generation
+ */
+function generateReport(snapshot, activity, format, redactUrls) {
+  switch (format) {
+    case 'json':
+      // For JSON, handle redaction separately
+      let reportData = {
+        job: snapshot,
+        activity,
+        exportedAt: new Date().toISOString()
+      };
+      if (redactUrls) {
+        reportData = redactUrlsFromData(reportData);
+      }
+      return JSON.stringify(reportData, null, 2);
+
+    case 'csv':
+      return generateCsvReport(snapshot, activity, redactUrls);
+
+    case 'txt':
+      return generateTextReport(snapshot, activity, redactUrls);
+
+    default:
+      throw new Error(`Unsupported format: ${format}`);
+  }
+}
+
+function generateCsvReport(snapshot, activity, redactUrls) {
+  const headers = ['Timestamp', 'Level', 'Message', 'Stage'];
+  let rows = activity.map(a => [
+    a.timestamp,
+    a.level,
+    `"${a.message.replace(/"/g, '""')}"`,
+    a.stage || ''
+  ]);
+  
+  // Redact URLs from messages if requested
+  if (redactUrls) {
+    rows = rows.map(row => [
+      row[0], // timestamp
+      row[1], // level
+      redactUrlsFromText(row[2]), // message
+      row[3]  // stage
+    ]);
+  }
+
+  return [headers, ...rows].map(row => row.join(',')).join('\n');
+}
+
+function generateTextReport(snapshot, activity, redactUrls) {
+  const jobId = redactUrls ? redactUrlsFromText(snapshot.jobId) : snapshot.jobId;
+  const status = redactUrls ? redactUrlsFromText(snapshot.status) : snapshot.status;
+  const stage = redactUrls ? redactUrlsFromText(snapshot.stage) : snapshot.stage;
+  const createdAt = snapshot.createdAt;
+  const startedAt = snapshot.startedAt || 'N/A';
+  const completedAt = snapshot.completedAt || 'N/A';
+  
+  const summary = redactUrls ? redactUrlsFromData(snapshot.summary) : snapshot.summary;
+  
+  const lines = [
+    `Job Report: ${jobId}`,
+    `Status: ${status}`,
+    `Stage: ${stage}`,
+    `Created: ${createdAt}`,
+    `Started: ${startedAt}`,
+    `Completed: ${completedAt}`,
+    '',
+    'Summary:',
+    JSON.stringify(summary, null, 2),
+    '',
+    'Activity Log:',
+    ...activity.map(a =>
+      `[${a.timestamp}] ${a.level.toUpperCase()}: ${redactUrls ? redactUrlsFromText(a.message) : a.message}`
+    )
+  ];
+
+  return lines.join('\n');
+}
+
+// Helper function to redact URLs from text
+function redactUrlsFromText(text) {
+  if (!text) return text;
+  // Regular expression to match URLs
+  const urlRegex = /https?:\/\/[^\s"'<>\]]+/gi;
+  return text.toString().replace(urlRegex, '[REDACTED-URL]');
+}
+
+// Helper function to redact URLs from an entire data structure recursively
+function redactUrlsFromData(data) {
+  if (typeof data === 'string') {
+    return redactUrlsFromText(data);
+  } else if (Array.isArray(data)) {
+    return data.map(item => redactUrlsFromData(item));
+  } else if (data !== null && typeof data === 'object') {
+    const result = {};
+    for (const [key, value] of Object.entries(data)) {
+      result[key] = redactUrlsFromData(value);
+    }
+    return result;
+  } else {
+    return data;
+  }
+}
+
+function getContentType(format) {
+  switch (format) {
+    case 'json': return 'application/json';
+    case 'csv': return 'text/csv';
+    case 'txt': return 'text/plain';
+    default: return 'text/plain';
+  }
+}
 
 /**
  * Example stage executors for the existing bookmark cleanup flow

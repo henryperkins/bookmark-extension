@@ -12,6 +12,7 @@ test('connection test job completes successfully', async () => {
       local: {
         get: async () => ({}),
         set: async () => {},
+        remove: async () => {},
       },
     },
   };

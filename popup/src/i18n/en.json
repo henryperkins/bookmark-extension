@@ -1,0 +1,128 @@
+{
+  "tabs": {
+    "review": "Review",
+    "add": "Add",
+    "manage": "Manage",
+    "importExport": "Import/Export",
+    "progress": "Progress"
+  },
+  "tabDescriptions": {
+    "review": "Review duplicate bookmarks",
+    "add": "Add new bookmark",
+    "manage": "Manage bookmark tree",
+    "importExport": "Import or export bookmarks",
+    "progress": "View job progress and metrics"
+  },
+  "reviewQueue": {
+    "title": "Review Duplicates",
+    "loading": "Loading...",
+    "noDuplicates": "No duplicates pending review.",
+    "filterPlaceholder": "Filter by title...",
+    "acceptAll": "Accept All",
+    "accept": "Accept",
+    "reject": "Reject",
+    "confirmAcceptAll": "Accept all {{count}} duplicates for removal?",
+    "similarText": "{{percent}}% similar to: {{title}}"
+  },
+  "addBookmark": {
+    "title": "Add Bookmark",
+    "titleLabel": "Title",
+    "titlePlaceholder": "Bookmark title",
+    "urlLabel": "URL",
+    "urlPlaceholder": "https://example.com",
+    "parentFolderLabel": "Parent Folder ID",
+    "parentFolderPlaceholder": "1",
+    "submitButton": "Add Bookmark",
+    "validationError": "Please enter both title and URL",
+    "successMessage": "Bookmark added!",
+    "errorMessage": "Failed to add bookmark",
+    "duplicateWarning": "This URL already exists in your bookmarks. Add anyway?"
+  },
+  "manageBookmarks": {
+    "title": "Manage Bookmarks",
+    "loading": "Loading...",
+    "delete": "Delete",
+    "confirmDelete": "Delete \"{{title}}\"?",
+    "newTitlePrompt": "New title:",
+    "untitled": "Untitled"
+  },
+  "importExport": {
+    "title": "Import/Export",
+    "exportTitle": "Export",
+    "exportButton": "Export All Bookmarks",
+    "exportDescription": "Exports bookmarks in Netscape HTML format",
+    "importTitle": "Import",
+    "importButton": "Import Bookmarks",
+    "importDescription": "Imports from Netscape HTML format (standard browser export)",
+    "selectFileError": "Please select a file first",
+    "exportStarted": "Export started! Check your downloads.",
+    "importComplete": "Import complete!",
+    "parentFolderLabel": "Parent Folder ID",
+    "parentFolderPlaceholder": "1"
+  },
+  "jobProgress": {
+    "activeJobs": "Active Jobs",
+    "jobHistory": "Job History",
+    "noActiveJobs": "No active jobs",
+    "cancelJob": "Cancel",
+    "retryJob": "Retry",
+    "viewDetails": "View Details",
+    "pauseJob": "Pause",
+    "resumeJob": "Resume",
+    "stages": {
+      "initializing": "Initializing",
+      "scanning": "Scanning",
+      "grouping": "Grouping",
+      "resolving": "Resolving",
+      "verifying": "Verifying",
+      "summarizing": "Summarizing",
+      "parse-html": "Parsing HTML",
+      "create-bookmarks": "Creating Bookmarks",
+      "enrich-bookmarks": "Enriching Bookmarks",
+      "testingConnection": "Testing Connection"
+    },
+    "status": {
+      "running": "Running",
+      "paused": "Paused",
+      "completed": "Completed",
+      "failed": "Failed",
+      "unknown": "Unknown"
+    },
+    "connectionLost": "⚠️ Connection lost. Trying to reconnect...",
+    "cancelConfirm": "Are you sure you want to cancel this job?",
+    "errorPrefix": "Error:",
+    "stagePrefix": "Stage:",
+    "loadingText": "Loading...",
+    "waitingText": "Waiting...",
+    "summaryTitle": "Summary:",
+    "duplicatesFound": "• Duplicates found: {{count}}",
+    "duplicatesResolved": "• Duplicates resolved: {{count}}",
+    "totalBookmarks": "• Total bookmarks: {{count}}",
+    "runtime": "• Runtime: {{seconds}}s"
+  },
+  "jobHistory": {
+    "loading": "Loading job history...",
+    "refresh": "Refresh",
+    "noHistory": "No job history available",
+    "details": "Job Details",
+    "exportReport": "Export Report",
+    "jobId": "Job ID",
+    "created": "Created",
+    "started": "Started",
+    "completed": "Completed",
+    "requestedBy": "Requested By",
+    "error": "Error",
+    "duplicatesFound": "{{count}} duplicates found",
+    "runtime": "{{seconds}}s runtime",
+    "exportSuccess": "Report exported successfully",
+    "exportError": "Failed to export report"
+  },
+  "accessibility": {
+    "mainNavigation": "Main navigation",
+    "progressIndicator": "Job progress indicator",
+    "loadingState": "Loading content",
+    "buttonFocus": "Button focused",
+    "expandedDetails": "Job details expanded",
+    "collapsedDetails": "Job details collapsed"
+  }
+}

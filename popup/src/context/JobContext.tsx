@@ -17,6 +17,8 @@ type JobSnapshot = {
   summary?: any;
   error?: string;
   queueMeta?: any;
+  stageOrder?: string[];
+  stageWeights?: Record<string, number>;
 };
 
 type JobActivity = {

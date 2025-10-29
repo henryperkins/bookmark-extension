@@ -592,6 +592,9 @@ chrome.runtime.onMessage.addListener((msg, _sender, reply) => {
               case "GET_ACTIVITY_LOG":
                 result = await JobSystemCommands.getActivityLog(payload?.limit || 50);
                 break;
+              case "EXPORT_REPORT":
+                result = await JobSystemCommands.exportReport(payload);
+                break;
               default:
                 result = { success: false, error: `Unknown job command: ${command}` };
             }
