@@ -11,8 +11,9 @@ import { NotificationManager } from "./utils/notificationManager.js";
 import { suggestFolders } from "./utils/folderOrganizer.js";
 import { SyncManager } from "./utils/syncManager.js";
 import { makePairKey, normalizeUrlForKey } from "./utils/url.js";
-import { initializeJobSystem, JobSystemCommands } from "./background/jobSystem.js";
+import { initializeJobSystem, JobSystemCommands, getJobSystem } from "./background/jobSystem.js";
 import { registerImportJobStages, wireUrlIndexListeners, rebuildUrlIndex, ensureUrlIndexIntegrity, JOB_META_PREFIX, IMPORT_PAYLOAD_PREFIX, ENRICH_PAYLOAD_PREFIX } from "./background/importStages.js";
+import { ConnectionTestStageExecutor } from './background/connectionStage.js';
 
 let reviewQueue = [];
 let ignorePairsCache = null;
@@ -517,14 +518,15 @@ chrome.runtime.onMessage.addListener((msg, _sender, reply) => {
           return;
 
         case "TEST_CONNECTION": {
-          try {
-            const client = createOpenAI(msg.config);
-            // Use max_completion_tokens for newer unified models; client will fallback automatically if unsupported.
-            await client.chat([{ role: 'user', content: 'ping' }], { max_completion_tokens: 5 });
-            safeReply({ success: true });
-          } catch (error) {
-            safeReply({ success: false, error: error?.message || String(error) });
+          const jobSystem = getJobSystem();
+          if (jobSystem) {
+            const executor = new ConnectionTestStageExecutor(msg.config);
+            jobSystem.registerStageExecutor('testingConnection', executor);
           }
+          const result = await JobSystemCommands.startJob("popup", {
+            metadata: { jobType: "test-connection" }
+          });
+          safeReply(result);
           return;
         }
 

@@ -26,7 +26,8 @@
  *   'grouping' |
  *   'resolving' |
  *   'verifying' |
- *   'summarizing'
+ *   'summarizing' |
+ *   'testingConnection'
  * )} StageId
  */
 
@@ -100,7 +101,7 @@
  * the background implementation.
  * @type {readonly StageId[]}
  */
-export const STAGE_ORDER = Object.freeze([
+export const CLEANUP_STAGE_ORDER = Object.freeze([
   'initializing',
   'scanning',
   'grouping',
@@ -108,6 +109,22 @@ export const STAGE_ORDER = Object.freeze([
   'verifying',
   'summarizing'
 ]);
+
+/**
+ * Ordered list of stages for the connection test job.
+ * @type {readonly StageId[]}
+ */
+export const TEST_CONNECTION_STAGE_ORDER = Object.freeze([
+  'initializing',
+  'testingConnection',
+  'summarizing'
+]);
+
+/**
+ * @deprecated Use `CLEANUP_STAGE_ORDER` instead.
+ * @type {readonly StageId[]}
+ */
+export const STAGE_ORDER = CLEANUP_STAGE_ORDER;
 
 /**
  * @type {readonly JobStatus[]}
@@ -139,7 +156,7 @@ export const JOB_COMMANDS = Object.freeze([
  * Weightings applied to each stage when computing the overall weighted progress
  * percentage.  Values should add up to 100.
  */
-export const DEFAULT_STAGE_WEIGHTS = Object.freeze({
+export const CLEANUP_STAGE_WEIGHTS = Object.freeze({
   initializing: 5,
   scanning: 30,
   grouping: 10,
@@ -149,6 +166,20 @@ export const DEFAULT_STAGE_WEIGHTS = Object.freeze({
 });
 
 /**
+ * Weightings for the connection test job.
+ */
+export const TEST_CONNECTION_STAGE_WEIGHTS = Object.freeze({
+  initializing: 20,
+  testingConnection: 60,
+  summarizing: 20
+});
+
+/**
+ * @deprecated Use `CLEANUP_STAGE_WEIGHTS` instead.
+ */
+export const DEFAULT_STAGE_WEIGHTS = CLEANUP_STAGE_WEIGHTS;
+
+/**
  * Metadata for each stage describing display properties and behavior flags.
  */
 export const STAGE_CONFIGS = Object.freeze({
@@ -156,7 +187,7 @@ export const STAGE_CONFIGS = Object.freeze({
     id: 'initializing',
     displayName: 'Initializing',
     description: 'Preparing the job environment and loading stored state',
-    weight: DEFAULT_STAGE_WEIGHTS.initializing,
+    weight: CLEANUP_STAGE_WEIGHTS.initializing,
     canPause: true,
     canCancel: true,
     estimatedUnits: 1,
@@ -166,7 +197,7 @@ export const STAGE_CONFIGS = Object.freeze({
     id: 'scanning',
     displayName: 'Scanning',
     description: 'Reading bookmark metadata and building working sets',
-    weight: DEFAULT_STAGE_WEIGHTS.scanning,
+    weight: CLEANUP_STAGE_WEIGHTS.scanning,
     canPause: true,
     canCancel: true,
     estimatedUnits: 100,
@@ -176,7 +207,7 @@ export const STAGE_CONFIGS = Object.freeze({
     id: 'grouping',
     displayName: 'Grouping',
     description: 'Clustering potential duplicates by similarity',
-    weight: DEFAULT_STAGE_WEIGHTS.grouping,
+    weight: CLEANUP_STAGE_WEIGHTS.grouping,
     canPause: true,
     canCancel: true,
     estimatedUnits: 10,
@@ -186,7 +217,7 @@ export const STAGE_CONFIGS = Object.freeze({
     id: 'resolving',
     displayName: 'Resolving',
     description: 'Applying dedupe and conflict resolution strategies',
-    weight: DEFAULT_STAGE_WEIGHTS.resolving,
+    weight: CLEANUP_STAGE_WEIGHTS.resolving,
     canPause: true,
     canCancel: true,
     estimatedUnits: 50,
@@ -196,7 +227,7 @@ export const STAGE_CONFIGS = Object.freeze({
     id: 'verifying',
     displayName: 'Verifying',
     description: 'Double-checking bookmark integrity and sync alignment',
-    weight: DEFAULT_STAGE_WEIGHTS.verifying,
+    weight: CLEANUP_STAGE_WEIGHTS.verifying,
     canPause: true,
     canCancel: true,
     estimatedUnits: 25,
@@ -206,7 +237,17 @@ export const STAGE_CONFIGS = Object.freeze({
     id: 'summarizing',
     displayName: 'Summarizing',
     description: 'Generating completion summary and persisting results',
-    weight: DEFAULT_STAGE_WEIGHTS.summarizing,
+    weight: CLEANUP_STAGE_WEIGHTS.summarizing,
+    canPause: false,
+    canCancel: true,
+    estimatedUnits: 1,
+    retryable: false
+  },
+  testingConnection: {
+    id: 'testingConnection',
+    displayName: 'Testing Connection',
+    description: 'Pinging the Azure OpenAI endpoint to verify credentials',
+    weight: TEST_CONNECTION_STAGE_WEIGHTS.testingConnection,
     canPause: false,
     canCancel: true,
     estimatedUnits: 1,

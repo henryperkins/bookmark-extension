@@ -4,6 +4,7 @@ const testConnectionBtn = document.getElementById('testConnection');
 const testResult = document.getElementById('testResult');
 const scrapingNotice = document.getElementById('scrapingNotice');
 const ALL_URLS_PERMISSION = { origins: ['<all_urls>'] };
+let testConnectionJobId = null;
 
 function recordLastError(context, ignoreClosedPort = true) {
   const err = chrome.runtime.lastError;
@@ -186,19 +187,14 @@ async function testConnection() {
       config: { apiKey, baseUrl, deployment, embeddingDeployment, apiVersion }
     },
     response => {
-      testConnectionBtn.disabled = false;
-      testConnectionBtn.textContent = 'Test Connection';
-
-      if (recordLastError('Connection test', false)) {
-        setTestResult('Connection test failed. See console for details.', 'error');
+      if (recordLastError('Connection test start', false) || !response?.success) {
+        testConnectionBtn.disabled = false;
+        testConnectionBtn.textContent = 'Test Connection';
+        setTestResult(response?.error || 'Failed to start connection test.', 'error');
         return;
       }
-
-      if (response?.success) {
-        setTestResult(`Connection successful! Model "${deployment}" responded.`, 'success');
-      } else {
-        setTestResult(response?.error || 'Connection test failed.', 'error');
-      }
+      // Store job ID to listen for completion
+      testConnectionJobId = response.jobId;
     }
   );
 }
@@ -207,5 +203,36 @@ form.scraping.addEventListener('change', handleScrapingToggleChange);
 form.addEventListener('submit', saveSettings);
 runNow.addEventListener('click', triggerCleanup);
 testConnectionBtn.addEventListener('click', testConnection);
+
+chrome.runtime.onMessage.addListener((message) => {
+  if (message.type !== 'jobStatus' || !message.job) {
+    return;
+  }
+
+  const { job } = message;
+  if (job.jobId !== testConnectionJobId) {
+    return;
+  }
+
+  // Once the job is done, reset the button and show the result
+  if (job.status === 'completed' || job.status === 'failed') {
+    testConnectionJobId = null;
+    testConnectionBtn.disabled = false;
+    testConnectionBtn.textContent = 'Test Connection';
+
+    if (job.status === 'failed') {
+      setTestResult(job.error || 'Connection test failed.', 'error');
+      return;
+    }
+
+    const result = job.summary?.connectionTest;
+    if (result?.success) {
+      const deployment = form.dep.value;
+      setTestResult(`Connection successful! Model "${deployment}" responded.`, 'success');
+    } else {
+      setTestResult(result?.error || 'Connection test failed with an unknown error.', 'error');
+    }
+  }
+});
 
 loadSettings().catch(error => console.error('Failed to load settings:', error));

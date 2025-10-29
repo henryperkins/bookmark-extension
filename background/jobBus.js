@@ -265,18 +265,23 @@ export class JobBus {
   setupMessageListener() {
     if (this.isListening) return;
 
-    chrome.runtime.onMessage.addListener((message, sender, sendResponse) => {
-      if (message.type === 'jobCommand') {
-        // This is a command from popup to background
-        this.publish({
-          type: 'jobCommand',
-          ...message,
-          senderId: sender.id
-        });
-      }
-    });
-
-    this.isListening = true;
+    if (typeof chrome !== 'undefined' && chrome?.runtime?.onMessage?.addListener) {
+      chrome.runtime.onMessage.addListener((message, sender, sendResponse) => {
+        if (message.type === 'jobCommand') {
+          // This is a command from popup to background
+          this.publish({
+            type: 'jobCommand',
+            ...message,
+            senderId: sender.id
+          });
+        }
+      });
+      this.isListening = true;
+    } else {
+      // Node/test environments may not provide chrome.runtime messaging
+      // Skip listener registration; bus will still function for local subscribers.
+      this.isListening = false;
+    }
   }
 
   /**
@@ -299,7 +304,12 @@ export class JobBus {
       }
     };
 
-    chrome.storage.onChanged.addListener(this.storageListener);
+    if (typeof chrome !== 'undefined' && chrome?.storage?.onChanged?.addListener) {
+      chrome.storage.onChanged.addListener(this.storageListener);
+    } else {
+      // Node/test environments may not provide chrome.storage.onChanged
+      // Skip listener registration; storage fallback will be disabled.
+    }
   }
 
   /**
@@ -338,6 +348,10 @@ export class JobBus {
     this.heartbeatTimer = setInterval(() => {
       this.performHeartbeat();
     }, interval);
+    // In Node test environments, allow process to exit even if the timer is active
+    if (typeof this.heartbeatTimer?.unref === 'function') {
+      try { this.heartbeatTimer.unref(); } catch {}
+    }
   }
 
   /**

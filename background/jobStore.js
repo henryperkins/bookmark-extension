@@ -67,9 +67,9 @@ export class JobStore {
     const lastSaveTime = this.lastSave.get(key) || 0;
     const now = Date.now();
 
-    // Check if we need to debounce
+    // Check if we need to debounce, but save immediately if paused
     const debounceDelay = Number.isFinite(this.options.debounceDelay) ? this.options.debounceDelay : DEFAULT_STORE_OPTIONS.debounceDelay;
-    if (now - lastSaveTime < debounceDelay) {
+    if (snapshot.status !== 'paused' && now - lastSaveTime < debounceDelay) {
       // Schedule deferred save
       this.scheduleSave(key, snapshot);
       return;
@@ -103,6 +103,13 @@ export class JobStore {
       
       // Save trimmed log
       await this.performSave(this.KEYS.ACTIVITY, activities);
+
+      // Also update the timestamp on the job snapshot
+      const snapshot = await this.loadSnapshot();
+      if (snapshot && snapshot.jobId === entry.jobId) {
+        snapshot.timestamp = entry.timestamp;
+        await this.saveSnapshot(snapshot);
+      }
     } catch (error) {
       console.error('Failed to append activity:', error);
       // Don't throw - activity logging should not break the main flow

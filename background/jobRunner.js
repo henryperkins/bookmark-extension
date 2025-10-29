@@ -4,9 +4,11 @@
  */
 
 import {
-  DEFAULT_STAGE_WEIGHTS,
+  CLEANUP_STAGE_ORDER,
+  CLEANUP_STAGE_WEIGHTS,
   STAGE_CONFIGS,
-  STAGE_ORDER,
+  TEST_CONNECTION_STAGE_ORDER,
+  TEST_CONNECTION_STAGE_WEIGHTS,
   calculateWeightedPercent,
   createEmptyJobSummary
 } from '../shared/jobTypes.js';
@@ -14,7 +16,7 @@ import {
 const DEFAULT_OPTIONS = {
   maxRetries: 3,
   retryDelay: 1000,
-  stageWeights: DEFAULT_STAGE_WEIGHTS,
+  stageWeights: CLEANUP_STAGE_WEIGHTS,
   autoPauseOnError: true
 };
 
@@ -42,6 +44,10 @@ export class JobRunner {
    * Register a stage executor for a specific stage
    */
   registerStageExecutor(stage, executor) {
+    if (this.stageExecutors.has(stage)) {
+      // To support service worker re-initialization, we'll just warn.
+      console.warn(`Stage executor for "${stage}" is already registered. Overwriting.`);
+    }
     this.stageExecutors.set(stage, executor);
   }
 
@@ -49,14 +55,25 @@ export class JobRunner {
    * Start a new job or resume an existing one
    */
   async startJob(queueMeta = {}) {
-    const stages = Array.isArray(STAGE_ORDER) && STAGE_ORDER.length ? STAGE_ORDER : ['initializing', 'scanning', 'grouping', 'resolving', 'verifying', 'summarizing'];
+    const { jobType = 'cleanup' } = queueMeta;
+    const isConnectionTest = jobType === 'test-connection';
+
+    const stages = isConnectionTest ? TEST_CONNECTION_STAGE_ORDER : CLEANUP_STAGE_ORDER;
+    const stageWeights = isConnectionTest ? TEST_CONNECTION_STAGE_WEIGHTS : CLEANUP_STAGE_WEIGHTS;
+
     const initialStage = stages[0];
     const now = new Date().toISOString();
 
-    // Load existing snapshot if available
+    // Load existing snapshot if available and compatible
     const existingSnapshot = await this.jobStore.loadSnapshot();
-    if (existingSnapshot && existingSnapshot.status === 'paused') {
-      const resumeStageIndex = typeof existingSnapshot.stageIndex === 'number' ? existingSnapshot.stageIndex : Math.max(stages.indexOf(existingSnapshot.stage), 0);
+    const canResume = existingSnapshot &&
+      existingSnapshot.status === 'paused' &&
+      existingSnapshot.queueMeta?.jobType === jobType;
+
+    if (canResume) {
+      const resumeStageIndex = typeof existingSnapshot.stageIndex === 'number'
+        ? existingSnapshot.stageIndex
+        : Math.max(stages.indexOf(existingSnapshot.stage), 0);
       const resumeStage = stages[resumeStageIndex] || initialStage;
 
       const mergedMeta = {
@@ -74,6 +91,8 @@ export class JobRunner {
         stage: resumeStage,
         timestamp: now,
         activity: 'Job resumed',
+        stageOrder: stages,
+        stageWeights,
         queueMeta: {
           ...mergedMeta
         }
@@ -108,6 +127,8 @@ export class JobRunner {
         startedAt: null,
         completedAt: null,
         summary: createEmptyJobSummary(),
+        stageOrder: stages,
+        stageWeights,
         queueMeta: mergedMeta
       };
     }
@@ -134,8 +155,9 @@ export class JobRunner {
    * Handle job commands
    */
   async handleCommand(command, payload = {}) {
-    if (!this.currentJob && command !== 'START_JOB') {
-      return { success: false, error: 'No active job to control' };
+    if (!this.currentJob && !['START_JOB', 'GET_JOB_STATUS'].includes(command)) {
+      const snapshot = await this.jobStore.loadSnapshot();
+      return { success: true, snapshot: snapshot || null };
     }
 
     try {
@@ -147,8 +169,10 @@ export class JobRunner {
         case 'PAUSE_JOB':
           break;
 
-        case 'GET_JOB_STATUS':
-          return { success: true };
+        case 'GET_JOB_STATUS': {
+          const snapshot = this.getCurrentJob() || await this.jobStore.loadSnapshot();
+          return { success: true, snapshot: snapshot || null };
+        }
 
         case 'GET_ACTIVITY_LOG':
           const activityLimit = typeof payload.limit === 'number' ? payload.limit : 50;
@@ -171,13 +195,15 @@ export class JobRunner {
    * Pause the current job
    */
   async pauseJob() {
-    if (!this.currentJob || this.currentJob.status !== 'running') {
-      throw new Error('Job is not running');
+    if (!this.currentJob || !['running', 'queued'].includes(this.currentJob.status)) {
+      return;
     }
 
-    this.currentJob.status = 'paused';
-    this.currentJob.activity = 'Job paused';
-    this.currentJob.timestamp = new Date().toISOString();
+    this.updateJob({
+      status: 'paused',
+      activity: 'Job paused',
+      timestamp: new Date().toISOString()
+    });
 
     // Abort any running operations
     if (this.abortController) {
@@ -187,6 +213,17 @@ export class JobRunner {
     await this.jobStore.saveSnapshot(this.currentJob);
     this.publishJobStatus();
     this.addActivity('info', 'Job paused by user');
+  }
+  
+  /**
+   * Update job properties and notify subscribers
+   */
+  updateJob(props) {
+    if (!this.currentJob) return;
+    
+    this.currentJob = { ...this.currentJob, ...props };
+    this.debouncedSave();
+    this.publishJobStatus();
   }
 
   /**
@@ -245,7 +282,7 @@ export class JobRunner {
       return;
     }
 
-    const stages = Array.isArray(STAGE_ORDER) && STAGE_ORDER.length ? STAGE_ORDER : ['initializing', 'scanning', 'grouping', 'resolving', 'verifying', 'summarizing'];
+    const stages = this.currentJob.stageOrder || CLEANUP_STAGE_ORDER;
     const currentStageIndex = this.currentJob.stageIndex || 0;
 
     if (currentStageIndex >= stages.length) {
@@ -391,7 +428,8 @@ export class JobRunner {
       processed: typeof processed === 'number' ? processed : 0,
       total: typeof total === 'number' ? total : null
     };
-    const weightedPercent = calculateWeightedPercent(this.currentJob.stage, stageUnits, this.options.stageWeights);
+    const stageWeights = this.currentJob.stageWeights || this.options.stageWeights;
+    const weightedPercent = calculateWeightedPercent(this.currentJob.stage, stageUnits, stageWeights);
 
     this.currentJob.stageUnits = stageUnits;
     this.currentJob.weightedPercent = weightedPercent;
@@ -422,10 +460,11 @@ export class JobRunner {
       processed: typeof result.processedUnits === 'number' ? result.processedUnits : this.currentJob.stageUnits.processed,
       total: typeof result.totalUnits === 'number' ? result.totalUnits : this.currentJob.stageUnits.total
     };
+    const stageWeights = this.currentJob.stageWeights || this.options.stageWeights;
     this.currentJob.weightedPercent = calculateWeightedPercent(
-      this.currentJob.stage, 
-      this.currentJob.stageUnits, 
-      this.options.stageWeights
+      this.currentJob.stage,
+      this.currentJob.stageUnits,
+      stageWeights
     );
 
     if (result.summary && typeof result.summary === 'object') {
@@ -610,7 +649,7 @@ export class JobRunner {
   /**
    * Cleanup resources
    */
-  dispose(): void {
+  dispose() {
     if (this.abortController) {
       this.abortController.abort();
     }
