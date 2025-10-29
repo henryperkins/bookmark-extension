@@ -9,7 +9,8 @@ const DEFAULT_BUS_OPTIONS = {
   heartbeatInterval: 30000,
   maxMessageQueue: 100,
   retryAttempts: 3,
-  retryDelay: 1000
+  retryDelay: 1000,
+  storageDebounceMs: 300
 };
 
 export class JobBus {
@@ -23,18 +24,31 @@ export class JobBus {
     this.storageListener = null;
     this.lastEvent = null;
     this.startTime = Date.now();
+    this.debugEnabled = false;
+    this._storageDebounceT = null;
+    this._storagePendingEvent = null;
+
+    // Load debug flag once (optional gate for verbose logs)
+    try {
+      if (typeof chrome !== 'undefined' && chrome?.storage?.local?.get) {
+        chrome.storage.local.get('debugLogs', (res) => {
+          this.debugEnabled = !!(res && (res.debugLogs ?? res['debugLogs']));
+        });
+      }
+    } catch {}
 
     this.setupMessageListener();
     this.startHeartbeat();
   }
 
   /**
-   * Connect a port to the event bus
+   * Connect a port to the event bus (CLIENT-SIDE)
+   * This creates a new connection from popup/client to background
    */
   connect(name) {
     try {
       const port = chrome.runtime.connect({ name });
-      
+
       if (this.ports.has(name)) {
         // Replace existing port
         this.disconnect(name);
@@ -77,6 +91,66 @@ export class JobBus {
   }
 
   /**
+   * Register an incoming port (SERVER-SIDE)
+   * This accepts an already-connected port from chrome.runtime.onConnect
+   * and sets up listeners for it
+   */
+  registerPort(port) {
+    if (!port || !port.name) {
+      console.error('[JobBus] Cannot register port without name');
+      return false;
+    }
+
+    const name = port.name;
+    if (this.debugEnabled) console.log(`[JobBus] Registering incoming port: ${name}`);
+
+    try {
+      // Remove existing port with same name
+      if (this.ports.has(name)) {
+        if (this.debugEnabled) console.log(`[JobBus] Replacing existing port: ${name}`);
+        this.disconnect(name);
+      }
+
+      const portInfo = {
+        port,
+        name,
+        connectedAt: Date.now(),
+        lastSeen: Date.now(),
+        messageCount: 0
+      };
+
+      this.ports.set(name, portInfo);
+
+      // Set up message listener
+      port.onMessage.addListener((message) => {
+        this.handlePortMessage(name, message);
+      });
+
+      // Set up disconnect listener
+      port.onDisconnect.addListener(() => {
+        this.handlePortDisconnect(name);
+      });
+
+      // Send connection confirmation
+      this.sendToPort(port, {
+        type: 'jobConnected',
+        portName: name
+      });
+
+      // Send last known event if available
+      if (this.lastEvent) {
+        this.sendToPort(port, this.lastEvent);
+      }
+
+      if (this.debugEnabled) console.log(`[JobBus] Port registered successfully: ${name}`);
+      return true;
+    } catch (error) {
+      console.error(`[JobBus] Failed to register port ${name}:`, error);
+      return false;
+    }
+  }
+
+  /**
    * Disconnect a port from the event bus
    */
   disconnect(name) {
@@ -113,8 +187,29 @@ export class JobBus {
     // Send to connected ports
     this.broadcastToPorts(event);
 
-    // Save to storage for fallback
-    this.saveToStorage(event);
+    // Save to storage for fallback (gate to reduce write amplification)
+    if (event && (event.type === 'jobStatus' || event.type === 'jobQueue')) {
+      // Debounce persist to avoid bursts of writes
+      if (this._storageDebounceT) {
+        try { clearTimeout(this._storageDebounceT); } catch {}
+        this._storageDebounceT = null;
+      }
+      this._storagePendingEvent = event;
+      const ms = Number.isFinite(this.options.storageDebounceMs) ? this.options.storageDebounceMs : DEFAULT_BUS_OPTIONS.storageDebounceMs;
+      this._storageDebounceT = setTimeout(() => {
+        try {
+          if (this._storagePendingEvent) {
+            this.saveToStorage(this._storagePendingEvent);
+          }
+        } finally {
+          this._storagePendingEvent = null;
+          this._storageDebounceT = null;
+        }
+      }, ms);
+      if (typeof this._storageDebounceT?.unref === 'function') {
+        try { this._storageDebounceT.unref(); } catch {}
+      }
+    }
   }
 
   /**
@@ -207,7 +302,7 @@ export class JobBus {
    * Handle port disconnection
    */
   handlePortDisconnect(portName) {
-    console.log(`Port ${portName} disconnected`);
+    if (this.debugEnabled) console.log(`Port ${portName} disconnected`);
     this.ports.delete(portName);
     
     // Notify subscribers that a port disconnected
@@ -291,15 +386,22 @@ export class JobBus {
     if (this.storageListener) return;
 
     this.storageListener = (changes, namespace) => {
-      if (namespace === 'local' && changes.jobEventBus) {
-        try {
-          const newValue = changes.jobEventBus.newValue;
-          if (newValue) {
-            const event = JSON.parse(newValue);
-            this.notifySubscribers(event);
+      if (namespace === 'local') {
+        if (changes.jobEventBus) {
+          try {
+            const newValue = changes.jobEventBus.newValue;
+            if (newValue) {
+              const event = JSON.parse(newValue);
+              this.notifySubscribers(event);
+            }
+          } catch (error) {
+            console.error('Error parsing storage event:', error);
           }
-        } catch (error) {
-          console.error('Error parsing storage event:', error);
+        }
+        if (changes.debugLogs) {
+          try {
+            this.debugEnabled = !!changes.debugLogs.newValue;
+          } catch {}
         }
       }
     };

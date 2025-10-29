@@ -167,6 +167,15 @@ export class JobRunner {
           break;
 
         case 'PAUSE_JOB':
+          await this.pauseJob();
+          break;
+
+        case 'RESUME_JOB':
+          await this.resumeJob();
+          break;
+
+        case 'CANCEL_JOB':
+          await this.cancelJob();
           break;
 
         case 'GET_JOB_STATUS': {

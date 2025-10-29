@@ -22,6 +22,21 @@ let importInProgress = false;
 const storageManager = new StorageManager();
 const bookmarkUrlCache = new Map();
 
+// Debug logging gate (optional, controlled via chrome.storage.local.debugLogs)
+let debugEnabled = false;
+const swLog = (...args) => {
+  try {
+    if (debugEnabled) console.log(...args);
+  } catch {}
+};
+// Load debug flag once on startup (non-blocking)
+(async () => {
+  try {
+    const { debugLogs } = await chrome.storage.local.get('debugLogs');
+    debugEnabled = !!debugLogs;
+  } catch {}
+})();
+
 const IGNORE_STORAGE_KEY = "ignoredDuplicates";
 
 (async () => {
@@ -558,6 +573,101 @@ chrome.runtime.onMessage.addListener((msg, _sender, reply) => {
   })();
 
   return true;
+});
+
+// Port connection handler for job bus
+chrome.runtime.onConnect.addListener((port) => {
+  swLog('[ServiceWorker] Port connected:', port.name);
+
+  // Only handle job-feed ports
+  if (port.name !== 'job-feed') {
+    return;
+  }
+
+  const jobSystem = getJobSystem();
+  if (!jobSystem) {
+    console.warn('[ServiceWorker] Job system not initialized');
+    port.postMessage({
+      type: 'error',
+      error: 'Job system not initialized'
+    });
+    return;
+  }
+
+  // Register the incoming port with the job bus (SERVER-SIDE)
+  // This uses the actual port from the popup, not creating a new connection
+  const jobBus = jobSystem.bus;
+  if (jobBus) {
+    const registered = jobBus.registerPort(port);
+    if (!registered) {
+      console.error('[ServiceWorker] Failed to register port');
+      return;
+    }
+  } else {
+    console.error('[ServiceWorker] Job bus not available');
+    port.postMessage({
+      type: 'error',
+      error: 'Job bus not available'
+    });
+    return;
+  }
+
+  // Note: Message handlers for job events are already set up by jobBus.registerPort()
+  // The job bus will automatically broadcast events to this port
+  // We only need to handle job commands here
+
+  // Handle job commands from popup
+  port.onMessage.addListener((message) => {
+    swLog('[ServiceWorker] Port message received:', message);
+
+    // Handle job commands
+    if (message.type === 'jobCommand' && message.command) {
+      const command = message.command;
+      const payload = message.payload || {};
+
+      // Route to job system
+      jobSystem.handleCommand(command, payload).then((result) => {
+        // Check if command succeeded
+        if (!result.success) {
+          console.error('[ServiceWorker] Command failed:', result.error);
+          port.postMessage({
+            type: 'commandError',
+            command,
+            error: result.error || 'Command failed'
+          });
+          return;
+        }
+
+        // Send specific responses for query commands
+        if (command === 'GET_JOB_STATUS' && result.snapshot) {
+          port.postMessage({
+            type: 'jobStatus',
+            job: result.snapshot
+          });
+        } else if (command === 'GET_ACTIVITY_LOG' && result.activity) {
+          // Send each activity entry
+          result.activity.forEach((activity) => {
+            port.postMessage({
+              type: 'jobActivity',
+              activity
+            });
+          });
+        }
+
+        // For PAUSE/RESUME/CANCEL, the jobRunner will automatically
+        // broadcast updated status via jobBus.publish()
+        // No need to send a specific response here
+      }).catch((error) => {
+        console.error('[ServiceWorker] Command failed:', error);
+        port.postMessage({
+          type: 'commandError',
+          error: error.message || String(error)
+        });
+      });
+    }
+  });
+
+  swLog('[ServiceWorker] Port handler setup complete');
 });
 
 chrome.bookmarks.onCreated.addListener((_id, node) => {

@@ -170,6 +170,21 @@ Reply with text (max 4000 chars)
 3. **Manage**: Tree view with inline edit/delete
 4. **Import/Export**: Netscape HTML backup/restore
 
+### Phase 2 UI Panels (Popup)
+- [StageList](popup/src/components/Phase2Panels.tsx:1) — shows all stages, indicates completed/active/pending, and renders the active stage progress. Respects reduced motion preferences.
+- [ActivityFeed](popup/src/components/Phase2Panels.tsx:1) — streams recent activity with severity (info/warn/error), timestamps, and optional stage/context.
+- [MetricsPanel](popup/src/components/Phase2Panels.tsx:1) — summarizes totals from JobSnapshot.summary (e.g., duplicates found/resolved, runtime, review queue size).
+
+These panels consume live events via [JobContext](popup/src/context/JobContext.tsx:51), which subscribes to the background event bus over a long-lived port.
+
+#### QA screenshots to capture (Phase 2)
+- Running state: [ProgressHeader](popup/src/components/ProgressHeader.tsx:49) visible; [StageList](popup/src/components/Phase2Panels.tsx:1) highlights active stage; [ActivityFeed](popup/src/components/Phase2Panels.tsx:1) shows incoming events.
+- Paused state: header changes status; StageList stops advancing; ActivityFeed logs pause event.
+- Completed state: header shows Completed; [MetricsPanel](popup/src/components/Phase2Panels.tsx:1) displays summary cards.
+- Reconnection after service worker restart: header banner visible; ActivityFeed continues; Resume works.
+
+Tip: Open Edge DevTools for both popup and service worker; ensure exactly one “[JobBus] Registering incoming port: job-feed” on popup open (no cascading connections).
+
 ---
 
 ## 🧪 Testing Checklist

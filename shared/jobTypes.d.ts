@@ -22,7 +22,8 @@ export type StageId =
   | 'grouping'
   | 'resolving'
   | 'verifying'
-  | 'summarizing';
+  | 'summarizing'
+  | 'testingConnection';
 
 export type ActivityLevel = 'info' | 'warn' | 'error';
 

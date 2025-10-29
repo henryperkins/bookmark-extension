@@ -1,4 +1,7 @@
 import { useState, useEffect } from 'react';
+import { JobProvider } from './context/JobContext';
+import { ProgressHeader } from './components/ProgressHeader';
+import { StageList, ActivityFeed, MetricsPanel } from './components/Phase2Panels';
 
 // Windows 11 2025 Typography Standards - Design System
 const styles = {
@@ -73,21 +76,7 @@ interface BookmarkNode {
   children?: BookmarkNode[];
 }
 
-interface JobSnapshot {
-  jobId?: string;
-  status?: string;
-  stage?: string;
-  stageIndex?: number;
-  totalUnits?: number | null;
-  processedUnits?: number;
-  stagePercent?: number;
-  weightedPercent?: number;
-  indeterminate?: boolean;
-  activity?: string;
-  timestamp?: string;
-  // Optional summary payload from completion
-  summary?: any;
-}
+// JobSnapshot type is now managed by JobContext
 
 // Review Queue Component
 function ReviewQueue() {
@@ -655,107 +644,20 @@ function ImportExport() {
   );
 }
 
-// Main App Component
-export default function App() {
+// Main App Component (inner, wrapped by JobProvider)
+function AppContent() {
   const [tab, setTab] = useState<'review' | 'add' | 'manage' | 'io'>('review');
-  const [job, setJob] = useState<JobSnapshot | null>(null);
-
-  // Poll lightweight job status from the service worker
-  useEffect(() => {
-    let timer: number | null = null;
-    const poll = () => {
-      try {
-        chrome.runtime.sendMessage({ type: "GET_JOB_STATUS" }, (data) => {
-          setJob(data || null);
-        });
-      } catch {
-        // ignore
-      }
-    };
-    poll(); // immediate
-    timer = window.setInterval(poll, 1000);
-    return () => {
-      if (timer) window.clearInterval(timer);
-    };
-  }, []);
 
   return (
-    <>
-      <style>{`
-        /* Windows 11 & Extension Design Standards - Hover & Focus States */
-        button {
-          font-family: 'Segoe UI Variable', 'Segoe UI', -apple-system, BlinkMacSystemFont, sans-serif;
-        }
+    <div>
+      {/* New ProgressHeader component shows real-time job status */}
+      <ProgressHeader />
 
-        button:hover {
-          filter: brightness(0.9);
-        }
+      {/* Phase 2 panels: StageList, MetricsPanel, ActivityFeed */}
+      <StageList />
+      <MetricsPanel />
+      <ActivityFeed />
 
-        button:active {
-          filter: brightness(0.85);
-        }
-
-        button:focus-visible {
-          outline: 2px solid #0078d4;
-          outline-offset: 2px;
-        }
-
-        input:focus-visible {
-          outline: 2px solid #0078d4;
-          outline-offset: 2px;
-        }
-
-        /* Ensure minimum 14px Semibold legibility (Windows 11 standard) */
-        body {
-          font-family: 'Segoe UI Variable', 'Segoe UI', -apple-system, BlinkMacSystemFont, sans-serif;
-        }
-      `}</style>
-      <div>
-        {job && (
-          <div
-            style={{
-              padding: styles.spacing.sm,
-              background: styles.colors.backgroundAlt,
-              borderBottom: `1px solid ${styles.colors.borderLight}`
-            }}
-            aria-live="polite"
-          >
-            <div style={{ display: 'flex', justifyContent: 'space-between', marginBottom: styles.spacing.xs }}>
-              <span style={{ fontSize: styles.typography.fontBody, color: styles.colors.text }}>
-                {(job.stage ? job.stage.charAt(0).toUpperCase() + job.stage.slice(1) : 'Working')}
-                {job.activity ? ` — ${job.activity}` : ''}
-              </span>
-              <span style={{ fontSize: styles.typography.fontBody, color: styles.colors.text }}>
-                {Math.round(100 * (job.weightedPercent ?? job.stagePercent ?? 0))}%
-              </span>
-            </div>
-            <div
-              role="progressbar"
-              aria-valuemin={0}
-              aria-valuemax={100}
-              aria-valuenow={Math.round(100 * (job.weightedPercent ?? job.stagePercent ?? 0))}
-              aria-valuetext={job.indeterminate ? 'Working…' : `${Math.round(100 * (job.weightedPercent ?? job.stagePercent ?? 0))}%`}
-            >
-              <div
-                style={{
-                  height: '6px',
-                  background: styles.colors.borderLight,
-                  borderRadius: '3px',
-                  overflow: 'hidden'
-                }}
-              >
-                <div
-                  style={{
-                    width: `${Math.round(100 * (job.weightedPercent ?? job.stagePercent ?? 0))}%`,
-                    height: '100%',
-                    background: styles.colors.primary,
-                    transition: 'width 200ms ease'
-                  }}
-                />
-              </div>
-            </div>
-          </div>
-        )}
       <nav
         style={{
           display: 'flex',
@@ -794,7 +696,46 @@ export default function App() {
       {tab === 'add' && <AddForm />}
       {tab === 'manage' && <TreeView />}
       {tab === 'io' && <ImportExport />}
-      </div>
+    </div>
+  );
+}
+
+// Main App component with JobProvider wrapper
+export default function App() {
+  return (
+    <>
+      <style>{`
+        /* Windows 11 & Extension Design Standards - Hover & Focus States */
+        button {
+          font-family: 'Segoe UI Variable', 'Segoe UI', -apple-system, BlinkMacSystemFont, sans-serif;
+        }
+
+        button:hover {
+          filter: brightness(0.9);
+        }
+
+        button:active {
+          filter: brightness(0.85);
+        }
+
+        button:focus-visible {
+          outline: 2px solid #0078d4;
+          outline-offset: 2px;
+        }
+
+        input:focus-visible {
+          outline: 2px solid #0078d4;
+          outline-offset: 2px;
+        }
+
+        /* Ensure minimum 14px Semibold legibility (Windows 11 standard) */
+        body {
+          font-family: 'Segoe UI Variable', 'Segoe UI', -apple-system, BlinkMacSystemFont, sans-serif;
+        }
+      `}</style>
+      <JobProvider>
+        <AppContent />
+      </JobProvider>
     </>
   );
 }

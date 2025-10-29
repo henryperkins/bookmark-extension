@@ -250,6 +250,47 @@ Load the extension in Edge with Developer mode and check:
 - Popup console
 - Options page console
 
+### Component testing (popup)
+
+We ship Vitest + React Testing Library for popup components.
+
+Commands:
+```bash
+cd popup
+npm install
+npm run test      # Headless run (dot reporter)
+npm run test:ui   # Interactive watch mode
+```
+
+Test locations:
+- [`ProgressHeader.test.tsx`](popup/src/components/__tests__/ProgressHeader.test.tsx:1)
+- [`StageList.test.tsx`](popup/src/components/__tests__/StageList.test.tsx:1)
+- `ActivityFeed.test.tsx` (coming alongside Phase 2)
+
+### QA screenshots (Phase 2)
+
+Capture screenshots in the popup for:
+- Running: header shows Running; StageList highlights active stage; ActivityFeed receives live entries.
+- Paused: header shows Paused; StageList progress frozen; an activity entry logs the pause.
+- Completed: header shows Completed; MetricsPanel displays summary cards (totals, runtime).
+- Reconnection: after reloading the service worker, popup shows reconnection banner then recovers; Resume continues job.
+
+Tip: Open both popup and service worker DevTools. On popup open, ensure exactly one
+“[JobBus] Registering incoming port: job-feed” line appears (no cascading connections).
+
+### Debug logging toggle
+
+To enable verbose logs in background and popup:
+```js
+// In any DevTools console (popup or service worker)
+chrome.storage.local.set({ debugLogs: true })
+```
+
+Disable with:
+```js
+chrome.storage.local.set({ debugLogs: false })
+```
+
 ## Packaging for Microsoft Store
 
 1. Build the popup: `cd popup && npm run build`
