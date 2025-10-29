@@ -99,32 +99,32 @@ export function generateCSSCustomProperties(tokens: DesignTokens = designTokens)
 
   // Typography
   Object.entries(tokens.typography).forEach(([key, value]) => {
-    cssProps[`--typography-${key}`] = value;
+    cssProps[`--typography-${key}`] = String(value);
   });
 
   // Spacing
   Object.entries(tokens.spacing).forEach(([key, value]) => {
-    cssProps[`--spacing-${key}`] = value;
+    cssProps[`--spacing-${key}`] = String(value);
   });
 
   // Colors
   Object.entries(tokens.colors).forEach(([key, value]) => {
-    cssProps[`--color-${key}`] = value;
+    cssProps[`--color-${key}`] = String(value);
   });
 
   // Border Radius
   Object.entries(tokens.borderRadius).forEach(([key, value]) => {
-    cssProps[`--border-radius-${key}`] = value;
+    cssProps[`--border-radius-${key}`] = String(value);
   });
 
   // Shadows
   Object.entries(tokens.shadows).forEach(([key, value]) => {
-    cssProps[`--shadow-${key}`] = value;
+    cssProps[`--shadow-${key}`] = String(value);
   });
 
   // Transitions
   Object.entries(tokens.transitions).forEach(([key, value]) => {
-    cssProps[`--transition-${key}`] = value;
+    cssProps[`--transition-${key}`] = String(value);
   });
 
   return cssProps;

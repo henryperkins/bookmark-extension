@@ -1,6 +1,7 @@
 import { useState, useEffect } from 'react';
 import { useI18n } from '../i18n';
 import { useAccessibility } from '../hooks/useAccessibility';
+import { sendRuntimeMessage } from '../utils/chrome';
 
 // Design system (matching App.tsx)
 const styles = {
@@ -72,15 +73,17 @@ export function JobHistory() {
   const loadHistory = async () => {
     try {
       setLoading(true);
-      const response = await chrome.runtime.sendMessage({
+      const response = await sendRuntimeMessage<{ success: boolean; history?: JobHistoryEntry[]; error?: string }>({
         type: 'jobCommand',
         command: 'GET_JOB_HISTORY'
       });
 
-      if (response.success) {
+      if (response?.success) {
         setHistory(response.history || []);
-      } else {
+      } else if (response) {
         console.error('Failed to load job history:', response.error);
+      } else {
+        console.warn('Job history unavailable: runtime message returned undefined');
       }
     } catch (error) {
       console.error('Error loading job history:', error);
@@ -134,17 +137,22 @@ export function JobHistory() {
 
   const exportReport = async (jobId: string, format: 'json' | 'csv' | 'txt') => {
     try {
-      const response = await chrome.runtime.sendMessage({
+      const response = await sendRuntimeMessage<{
+        success: boolean;
+        downloadUrl?: string;
+        filename?: string;
+        error?: string;
+      }>({
         type: 'jobCommand',
         command: 'EXPORT_REPORT',
         payload: { jobId, format }
       });
 
-      if (response.success && response.downloadUrl) {
+      if (response?.success && response.downloadUrl) {
         // Create download link
         const link = document.createElement('a');
         link.href = response.downloadUrl;
-        link.download = response.filename;
+        link.download = response.filename ?? `job-report-${jobId}.${format}`;
         document.body.appendChild(link);
         link.click();
         document.body.removeChild(link);
@@ -154,6 +162,9 @@ export function JobHistory() {
 
         announceToScreenReader(t('jobHistory.exportSuccess'), 'polite');
       } else {
+        if (response?.error) {
+          console.error('Export failed:', response.error);
+        }
         announceToScreenReader(t('jobHistory.exportError'), 'assertive');
       }
     } catch (error) {

@@ -39,7 +39,7 @@ const swLog = (...args) => {
 
 const IGNORE_STORAGE_KEY = "ignoredDuplicates";
 
-(async () => {
+const initializationPromise = (async () => {
   try {
     const jobSystem = await initializeJobSystem();
     registerImportJobStages(jobSystem);
@@ -404,6 +404,7 @@ chrome.alarms.onAlarm.addListener(async ({ name }) => {
 chrome.runtime.onMessage.addListener((msg, _sender, reply) => {
   // Always return true synchronously so Chrome keeps the port open while async work finishes.
   (async () => {
+    await initializationPromise;
     await loadQueue();
 
     let replied = false;
@@ -619,7 +620,7 @@ chrome.runtime.onMessage.addListener((msg, _sender, reply) => {
 });
 
 // Port connection handler for job bus
-chrome.runtime.onConnect.addListener((port) => {
+chrome.runtime.onConnect.addListener(async (port) => {
   swLog('[ServiceWorker] Port connected:', port.name);
 
   // Only handle job-feed ports
@@ -627,10 +628,20 @@ chrome.runtime.onConnect.addListener((port) => {
     return;
   }
 
+  // Safe port messaging helper
+  const safePostMessage = (msg) => {
+    try {
+      port.postMessage(msg);
+    } catch (e) {
+      // Port disconnected, ignore
+    }
+  };
+
+  await initializationPromise;
   const jobSystem = getJobSystem();
   if (!jobSystem) {
     console.warn('[ServiceWorker] Job system not initialized');
-    port.postMessage({
+    safePostMessage({
       type: 'error',
       error: 'Job system not initialized'
     });
@@ -648,7 +659,7 @@ chrome.runtime.onConnect.addListener((port) => {
     }
   } else {
     console.error('[ServiceWorker] Job bus not available');
-    port.postMessage({
+    safePostMessage({
       type: 'error',
       error: 'Job bus not available'
     });
@@ -658,6 +669,15 @@ chrome.runtime.onConnect.addListener((port) => {
   // Note: Message handlers for job events are already set up by jobBus.registerPort()
   // The job bus will automatically broadcast events to this port
   // We only need to handle job commands here
+
+  // Safe port messaging helper
+  const safePostMessage = (msg) => {
+    try {
+      port.postMessage(msg);
+    } catch (e) {
+      // Port disconnected, ignore
+    }
+  };
 
   // Handle job commands from popup
   port.onMessage.addListener((message) => {
@@ -673,7 +693,7 @@ chrome.runtime.onConnect.addListener((port) => {
         // Check if command succeeded
         if (!result.success) {
           console.error('[ServiceWorker] Command failed:', result.error);
-          port.postMessage({
+          safePostMessage({
             type: 'commandError',
             command,
             error: result.error || 'Command failed'
@@ -683,14 +703,14 @@ chrome.runtime.onConnect.addListener((port) => {
 
         // Send specific responses for query commands
         if (command === 'GET_JOB_STATUS' && result.snapshot) {
-          port.postMessage({
+          safePostMessage({
             type: 'jobStatus',
             job: result.snapshot
           });
         } else if (command === 'GET_ACTIVITY_LOG' && result.activity) {
           // Send each activity entry
           result.activity.forEach((activity) => {
-            port.postMessage({
+            safePostMessage({
               type: 'jobActivity',
               activity
             });
@@ -702,7 +722,7 @@ chrome.runtime.onConnect.addListener((port) => {
         // No need to send a specific response here
       }).catch((error) => {
         console.error('[ServiceWorker] Command failed:', error);
-        port.postMessage({
+        safePostMessage({
           type: 'commandError',
           error: error.message || String(error)
         });

@@ -31,27 +31,27 @@ export function useDesignSystem(customTokens?: Partial<DesignTokens>) {
     const props: Record<string, string> = {};
 
     Object.entries(mergedTokens.typography).forEach(([key, value]) => {
-      props[`--typography-${key}`] = value;
+      props[`--typography-${key}`] = String(value);
     });
 
     Object.entries(mergedTokens.spacing).forEach(([key, value]) => {
-      props[`--spacing-${key}`] = value;
+      props[`--spacing-${key}`] = String(value);
     });
 
     Object.entries(mergedTokens.colors).forEach(([key, value]) => {
-      props[`--color-${key}`] = value;
+      props[`--color-${key}`] = String(value);
     });
 
     Object.entries(mergedTokens.borderRadius).forEach(([key, value]) => {
-      props[`--border-radius-${key}`] = value;
+      props[`--border-radius-${key}`] = String(value);
     });
 
     Object.entries(mergedTokens.shadows).forEach(([key, value]) => {
-      props[`--shadow-${key}`] = value;
+      props[`--shadow-${key}`] = String(value);
     });
 
     Object.entries(mergedTokens.transitions).forEach(([key, value]) => {
-      props[`--transition-${key}`] = value;
+      props[`--transition-${key}`] = String(value);
     });
 
     return props;

@@ -33,11 +33,17 @@ export class JobRunner {
 
     // Subscribe to job bus events to keep the internal state synchronized
     this.jobBus.subscribe('job-runner', (event) => {
+      // NOTE: This subscription handler is disabled to prevent a feedback loop
+      // where the runner notifies the system, which publishes to the bus,
+      // which notifies the runner, causing an infinite loop.
+      // The runner should be the single source of truth for job state.
+      /*
       const isRelevantEvent = event.type === 'jobStatus' || event.type === 'jobCompleted' || event.type === 'jobTerminated';
       if (isRelevantEvent && event.job?.jobId && this.currentJob && event.job.jobId === this.currentJob.jobId) {
         this.currentJob = event.job;
         this.notifySubscribers();
       }
+      */
     });
   }
 

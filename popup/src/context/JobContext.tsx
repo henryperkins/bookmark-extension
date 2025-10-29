@@ -1,4 +1,5 @@
 import { createContext, useContext, useEffect, useState, useCallback, useRef, ReactNode } from 'react';
+import { connectPort, getLocalStorage, sendRuntimeMessage, sendRuntimeMessageWithCallback } from '../utils/chrome';
 
 // Import types from shared
 type JobSnapshot = {
@@ -71,11 +72,18 @@ export function JobProvider({ children }: JobProviderProps) {
 
   // Load debug flag once
   useEffect(() => {
+    const localStorage = getLocalStorage();
+    if (!localStorage?.get) {
+      return;
+    }
+
     try {
-      chrome.storage?.local?.get?.('debugLogs', (res) => {
+      localStorage.get('debugLogs', (res) => {
         debugRef.current = !!(res && (res.debugLogs ?? (res as any)['debugLogs']));
       });
-    } catch {}
+    } catch (error) {
+      console.warn('[JobContext] Failed to load debug flag:', error);
+    }
   }, []);
 
   /**
@@ -98,8 +106,13 @@ export function JobProvider({ children }: JobProviderProps) {
         portRef.current = null;
       }
 
-      // Create new port connection
-      const port = chrome.runtime.connect({ name: 'job-feed' });
+      const port = connectPort('job-feed');
+      if (!port) {
+        console.warn('[JobContext] Unable to open runtime port');
+        setIsConnected(false);
+        setError('Failed to connect to background runtime');
+        return;
+      }
       portRef.current = port;
       setIsConnected(true);
       setError(null);
@@ -201,15 +214,21 @@ export function JobProvider({ children }: JobProviderProps) {
         }
       });
 
-      // Request current status
-      port.postMessage({
+      const safePost = (message: Record<string, unknown>) => {
+        try {
+          port.postMessage(message);
+        } catch (err) {
+          console.error('[JobContext] Failed to post message on port:', err);
+        }
+      };
+
+      safePost({
         type: 'jobCommand',
         command: 'GET_JOB_STATUS',
         timestamp: Date.now()
       });
 
-      // Request activity log
-      port.postMessage({
+      safePost({
         type: 'jobCommand',
         command: 'GET_ACTIVITY_LOG',
         payload: { limit: 50 },
@@ -256,15 +275,18 @@ export function JobProvider({ children }: JobProviderProps) {
     logDebug('[JobContext] Dispatching command:', command, payload);
 
     if (!portRef.current) {
-      console.warn('[JobContext] Cannot dispatch command, port not connected');
-      // Try to send via sendMessage as fallback
-      chrome.runtime.sendMessage({
+      console.warn('[JobContext] Port not connected, using runtime fallback');
+      const result = sendRuntimeMessage({
         type: 'jobCommand',
         command,
         payload
-      }).catch((err) => {
-        console.error('[JobContext] Failed to send message:', err);
       });
+
+      if (result) {
+        result.catch((err) => {
+          console.error('[JobContext] Failed to send message:', err);
+        });
+      }
       return;
     }
 
@@ -304,21 +326,24 @@ export function JobProvider({ children }: JobProviderProps) {
     if (!isConnected && !error) {
       const pollInterval = setInterval(() => {
         logDebug('[JobContext] Polling for status (fallback mode)...');
-        chrome.runtime.sendMessage({ type: 'GET_JOB_STATUS' }, (response) => {
-          try {
-            if (response && typeof response === 'object') {
-              // Service worker may return either the snapshot object directly,
-              // or an object with a { snapshot } property.
-              if ((response as any).jobId) {
-                setSnapshot(response as any);
-              } else if ((response as any).snapshot) {
-                setSnapshot((response as any).snapshot);
+        sendRuntimeMessageWithCallback<{ jobId?: string; snapshot?: JobSnapshot } | null>(
+          { type: 'GET_JOB_STATUS' },
+          (response) => {
+            try {
+              if (response && typeof response === 'object') {
+                // Service worker may return either the snapshot object directly,
+                // or an object with a { snapshot } property.
+                if ((response as any).jobId) {
+                  setSnapshot(response as JobSnapshot);
+                } else if ((response as any).snapshot) {
+                  setSnapshot((response as any).snapshot as JobSnapshot);
+                }
               }
+            } catch (e) {
+              console.error('[JobContext] Fallback polling parse error:', e);
             }
-          } catch (e) {
-            console.error('[JobContext] Fallback polling parse error:', e);
           }
-        });
+        );
       }, 5000);
 
       return () => clearInterval(pollInterval);

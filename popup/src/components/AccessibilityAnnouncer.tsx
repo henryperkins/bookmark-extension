@@ -12,7 +12,7 @@ export function AccessibilityAnnouncer({
   clearOnMessageChange = true,
 }: AccessibilityAnnouncerProps) {
   const announcementRef = useRef<HTMLDivElement>(null);
-  const timeoutRef = useRef<NodeJS.Timeout | null>(null);
+  const timeoutRef = useRef<number | null>(null);
 
   useEffect(() => {
     // Clear any existing timeout

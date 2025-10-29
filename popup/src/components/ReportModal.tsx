@@ -1,5 +1,6 @@
 import { useState, useEffect, useRef } from 'react';
 import { useJob } from '../hooks/useJob';
+import { sendRuntimeMessage } from '../utils/chrome';
 
 // Design system (matching other components)
 const styles = {
@@ -109,7 +110,12 @@ export function ReportModal({ isOpen, onClose }: ReportModalProps) {
 
     try {
       // Send export command to background script
-      const response = await chrome.runtime.sendMessage({
+      const response = await sendRuntimeMessage<{
+        success: boolean;
+        downloadUrl?: string;
+        filename?: string;
+        error?: string;
+      }>({
         type: 'jobCommand',
         command: 'EXPORT_REPORT',
         payload: {
@@ -120,7 +126,7 @@ export function ReportModal({ isOpen, onClose }: ReportModalProps) {
         },
       });
 
-      if (response?.success) {
+      if (response?.success && response.downloadUrl && response.filename) {
         setExportStatus('ready');
         setExportData({
           url: response.downloadUrl,
@@ -201,20 +207,6 @@ export function ReportModal({ isOpen, onClose }: ReportModalProps) {
     >
       <div
         ref={modalRef}
-        style={{
-          backgroundColor: styles.colors.white,
-          borderRadius: '8px',
-          boxShadow: '0 4px 20px rgba(0, 0, 0, 0.15)',
-          maxWidth: '500px',
-          width: '100%',
-          maxHeight: '80vh',
-          overflow: 'hidden',
-          display: 'flex',
-          flexDirection: 'column',
-        }}
-        onClick={(e) => e.stopPropagation()}
-      >
-      <div
         style={{
           backgroundColor: styles.colors.white,
           borderRadius: '8px',

@@ -6,6 +6,7 @@ import { StageList, ActivityFeed, MetricsPanel } from './components/Phase2Panels
 import { JobHistory } from './components/JobHistory';
 import { useI18n } from './i18n';
 import { useAccessibility } from './hooks/useAccessibility';
+import { getRuntime, sendRuntimeMessageWithCallback } from './utils/chrome';
 
 // Windows 11 2025 Typography Standards - Design System
 const styles = {
@@ -91,7 +92,7 @@ function ReviewQueue() {
 
   const refresh = () => {
     setLoading(true);
-    chrome.runtime.sendMessage({ type: "GET_PENDING" }, (data) => {
+    sendRuntimeMessageWithCallback<Duplicate[]>({ type: 'GET_PENDING' }, (data) => {
       setPending(data || []);
       setLoading(false);
     });
@@ -102,16 +103,16 @@ function ReviewQueue() {
   }, []);
 
   const accept = (id: string) => {
-    chrome.runtime.sendMessage({ type: "ACCEPT_MERGE", id }, refresh);
+    sendRuntimeMessageWithCallback({ type: 'ACCEPT_MERGE', id }, () => refresh());
   };
 
   const reject = (id: string) => {
-    chrome.runtime.sendMessage({ type: "REJECT_MERGE", id }, refresh);
+    sendRuntimeMessageWithCallback({ type: 'REJECT_MERGE', id }, () => refresh());
   };
 
   const acceptAll = () => {
     if (confirm(t('reviewQueue.confirmAcceptAll', { count: pending.length }))) {
-      chrome.runtime.sendMessage({ type: "ACCEPT_ALL" }, refresh);
+      sendRuntimeMessageWithCallback({ type: 'ACCEPT_ALL' }, () => refresh());
     }
   };
 
@@ -213,7 +214,7 @@ function ReviewQueue() {
               color: styles.colors.primary,
               fontSize: styles.typography.fontCaption
             }}>
-              {t('reviewQueue.similarText', { percent: d.similarity, title: d.duplicateOf?.title })}
+              {t('reviewQueue.similarText', { percent: d.similarity, title: d.duplicateOf?.title || '' })}
             </span>
             <div style={{ marginTop: styles.spacing.sm }}>
               <button
@@ -270,8 +271,15 @@ function AddForm() {
       return;
     }
 
-    chrome.runtime.sendMessage({ type: "CHECK_DUPLICATE_URL", url }, (dup) => {
-      const lastError = chrome.runtime.lastError;
+    const runtime = getRuntime();
+    if (!runtime?.sendMessage) {
+      console.warn('[AddForm] chrome.runtime is unavailable');
+      alert(t('addBookmark.errorMessage'));
+      return;
+    }
+
+    runtime.sendMessage({ type: 'CHECK_DUPLICATE_URL', url }, (dup) => {
+      const lastError = runtime.lastError;
       if (lastError) {
         console.warn('Duplicate lookup failed:', lastError.message);
       }
@@ -280,18 +288,15 @@ function AddForm() {
         if (!proceed) return;
       }
 
-      chrome.runtime.sendMessage(
-        { type: "CREATE_BOOKMARK", payload: { title, url, parentId } },
-        (result) => {
-          if (result?.id) {
-            alert(t('addBookmark.successMessage'));
-            setTitle('');
-            setUrl('');
-          } else {
-            alert(t('addBookmark.errorMessage'));
-          }
+      runtime.sendMessage({ type: 'CREATE_BOOKMARK', payload: { title, url, parentId } }, (result) => {
+        if (result?.id) {
+          alert(t('addBookmark.successMessage'));
+          setTitle('');
+          setUrl('');
+        } else {
+          alert(t('addBookmark.errorMessage'));
         }
-      );
+      });
     });
   };
 
@@ -411,7 +416,7 @@ function TreeView() {
 
   const refresh = () => {
     setLoading(true);
-    chrome.runtime.sendMessage({ type: "GET_TREE" }, (data) => {
+    sendRuntimeMessageWithCallback<BookmarkNode[]>({ type: 'GET_TREE' }, (data) => {
       setTree(data || []);
       setLoading(false);
     });
@@ -424,16 +429,16 @@ function TreeView() {
   const edit = (node: BookmarkNode) => {
     const title = prompt(t('manageBookmarks.newTitlePrompt'), node.title) || node.title;
     if (title) {
-      chrome.runtime.sendMessage(
-        { type: "UPDATE_BOOKMARK", id: node.id, changes: { title } },
-        refresh
+      sendRuntimeMessageWithCallback(
+        { type: 'UPDATE_BOOKMARK', id: node.id, changes: { title } },
+        () => refresh()
       );
     }
   };
 
   const del = (node: BookmarkNode) => {
-    if (confirm(t('manageBookmarks.confirmDelete', { title: node.title || node.url }))) {
-      chrome.runtime.sendMessage({ type: "DELETE_BOOKMARK", id: node.id }, refresh);
+    if (confirm(t('manageBookmarks.confirmDelete', { title: node.title || node.url || '' }))) {
+      sendRuntimeMessageWithCallback({ type: 'DELETE_BOOKMARK', id: node.id }, () => refresh());
     }
   };
 
@@ -506,7 +511,7 @@ function ImportExport() {
   const [parentId, setParentId] = useState('1');
 
   const exportAll = () => {
-    chrome.runtime.sendMessage({ type: "EXPORT_BOOKMARKS" }, () => {
+    sendRuntimeMessageWithCallback({ type: 'EXPORT_BOOKMARKS' }, () => {
       alert(t('importExport.exportStarted'));
     });
   };
@@ -518,8 +523,8 @@ function ImportExport() {
     }
 
     const text = await file.text();
-    chrome.runtime.sendMessage(
-      { type: "IMPORT_BOOKMARKS", text, parentId },
+    sendRuntimeMessageWithCallback(
+      { type: 'IMPORT_BOOKMARKS', text, parentId },
       () => {
         alert(t('importExport.importComplete'));
         setFile(null);
