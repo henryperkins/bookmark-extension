@@ -504,22 +504,11 @@ chrome.runtime.onMessage.addListener((msg, _sender, reply) => {
           const html = msg?.text || "";
           const parentId = msg?.parentId || "1";
           try {
-            if (shouldQueueImport(html)) {
-              const jobId = await queueImportJob(html, parentId);
-              safeReply({ success: true, queued: true, jobId });
-            } else {
-              await importHtml(html, parentId);
-              safeReply({ success: true, queued: false });
-            }
+            await importHtml(html, parentId);
+            safeReply({ success: true });
           } catch (error) {
-            console.warn("Queued import failed, attempting direct import:", error);
-            try {
-              await importHtml(html, parentId);
-              safeReply({ success: true, queued: false, fallback: true });
-            } catch (fallbackError) {
-              console.error("Fallback import failed:", fallbackError);
-              safeReply({ success: false, error: String(fallbackError) });
-            }
+            console.error("Import failed:", error);
+            safeReply({ success: false, error: String(error) });
           }
           return;
         }
@@ -534,15 +523,13 @@ chrome.runtime.onMessage.addListener((msg, _sender, reply) => {
           return;
 
         case "TEST_CONNECTION": {
-          const jobSystem = getJobSystem();
-          if (jobSystem) {
-            const executor = new ConnectionTestStageExecutor(msg.config);
-            jobSystem.registerStageExecutor('testingConnection', executor);
+          try {
+            const client = createOpenAI(msg.config);
+            await client.chat([{ role: 'user', content: 'ping' }], { max_tokens: 1 });
+            safeReply({ success: true });
+          } catch (error) {
+            safeReply({ success: false, error: error?.message || String(error) });
           }
-          const result = await JobSystemCommands.startJob("popup", {
-            metadata: { jobType: "test-connection" }
-          });
-          safeReply(result);
           return;
         }
 
