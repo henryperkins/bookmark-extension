@@ -1,4 +1,4 @@
-import { normalizeUrlForKey } from "./url.js";
+import { normalizeUrlForKey } from './url.js';
 
 function serializeVector(vec) {
   return Array.from(vec);

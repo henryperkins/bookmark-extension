@@ -12,7 +12,7 @@ import { suggestFolders } from "./utils/folderOrganizer.js";
 import { SyncManager } from "./utils/syncManager.js";
 import { makePairKey, normalizeUrlForKey } from "./utils/url.js";
 import { initializeJobSystem, JobSystemCommands, getJobSystem } from "./background/jobSystem.js";
-import { registerImportJobStages, wireUrlIndexListeners, rebuildUrlIndex, ensureUrlIndexIntegrity, JOB_META_PREFIX, IMPORT_PAYLOAD_PREFIX, ENRICH_PAYLOAD_PREFIX } from "./background/importStages.js";
+import { registerImportJobStages, wireUrlIndexListeners, rebuildUrlIndex, ensureUrlIndexIntegrity, JOB_META_PREFIX, ENRICH_PAYLOAD_PREFIX } from "./background/importStages.js";
 import { ConnectionTestStageExecutor } from './background/connectionStage.js';
 
 let reviewQueue = [];
@@ -68,29 +68,6 @@ const initializationPromise = (async () => {
   }
 })();
 
-async function queueImportJob(html, parentId = "1") {
-  const result = await JobSystemCommands.startJob("popup", { metadata: { jobType: "import" } });
-  if (!result.success || !result.jobId) {
-    throw new Error(result.error || "Failed to start import job");
-  }
-
-  const jobId = result.jobId;
-  const payload = {
-    [`${JOB_META_PREFIX}${jobId}`]: { type: "import", parentId },
-    [`${IMPORT_PAYLOAD_PREFIX}${jobId}`]: { html, parentId }
-  };
-
-  try {
-    await chrome.storage.local.set(payload);
-    return jobId;
-  } catch (error) {
-    console.warn("Failed to persist import payload:", error);
-    await chrome.storage.local.remove(Object.keys(payload));
-    await JobSystemCommands.cancelJob().catch(() => {});
-    throw error;
-  }
-}
-
 async function queueEnrichJob(bookmarkId) {
   if (!bookmarkId) return null;
 
@@ -129,12 +106,6 @@ async function isDuplicateUrl(url) {
   return Boolean(entry);
 }
 
-function shouldQueueImport(html) {
-  if (!html || typeof html !== "string") return false;
-  if (html.length > 500_000) return true;
-  const dtMatches = html.match(/<DT/gi)?.length || 0;
-  return dtMatches >= 800;
-}
 
 async function loadQueue() {
   const { reviewQueue: stored } = await chrome.storage.local.get('reviewQueue');

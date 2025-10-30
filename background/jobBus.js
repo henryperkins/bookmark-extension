@@ -101,7 +101,7 @@ export class JobBus {
       return false;
     }
 
-    const name = port.name;
+    const {name} = port;
     if (this.debugEnabled) console.log(`[JobBus] Registering incoming port: ${name}`);
 
     try {
@@ -174,7 +174,7 @@ export class JobBus {
 
     // Add to message queue
     this.messageQueue.push({ event, timestamp });
-    
+
     // Trim queue if it gets too large
     const maxQueueSize = Number.isFinite(this.options.maxMessageQueue) ? this.options.maxMessageQueue : DEFAULT_BUS_OPTIONS.maxMessageQueue;
     if (this.messageQueue.length > maxQueueSize) {
@@ -304,7 +304,7 @@ export class JobBus {
   handlePortDisconnect(portName) {
     if (this.debugEnabled) console.log(`Port ${portName} disconnected`);
     this.ports.delete(portName);
-    
+
     // Notify subscribers that a port disconnected
     this.publish({
       type: 'jobDisconnected',
@@ -389,7 +389,7 @@ export class JobBus {
       if (namespace === 'local') {
         if (changes.jobEventBus) {
           try {
-            const newValue = changes.jobEventBus.newValue;
+            const {newValue} = changes.jobEventBus;
             if (newValue) {
               const event = JSON.parse(newValue);
               this.notifySubscribers(event);

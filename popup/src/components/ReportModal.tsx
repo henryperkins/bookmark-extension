@@ -62,7 +62,7 @@ export function ReportModal({ isOpen, onClose }: ReportModalProps) {
       // Find all focusable elements
       const focusableElements = modalRef.current.querySelectorAll(
         'button, [href], input, select, textarea, [tabindex]:not([tabindex="-1"])'
-      ) as NodeListOf<HTMLElement>;
+      );
       
       firstFocusableRef.current = focusableElements[0] || null;
       lastFocusableRef.current = focusableElements[focusableElements.length - 1] || null;

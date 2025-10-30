@@ -1,15 +1,15 @@
-import { validateTags } from "./utils/tagValidator.js";
+import { validateTags } from './utils/tagValidator.js';
 
 export async function tagNodes(nodes, openai, opts = {}) {
   if (!nodes.length) return [];
   const onProgress = typeof opts.onProgress === 'function' ? opts.onProgress : null;
   const BATCH = 50;
   const out = [];
-  
+
   if (onProgress) {
     try { onProgress(0, nodes.length); } catch {}
   }
-  
+
   for (let i = 0; i < nodes.length; i += BATCH) {
     const slice = nodes.slice(i, i + BATCH);
     const messages = [
@@ -42,10 +42,10 @@ export async function tagNodes(nodes, openai, opts = {}) {
       }
     }
   }
-  
+
   if (onProgress) {
     try { onProgress(out.length, nodes.length); } catch {}
   }
-  
+
   return out;
 }

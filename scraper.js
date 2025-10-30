@@ -1,4 +1,4 @@
-import { ensureOffscreen } from "./utils/offscreen.js";
+import { ensureOffscreen } from './utils/offscreen.js';
 
 // Fetch page text via offscreen document with retry to avoid noisy
 // "message port closed" errors when the offscreen page isn't ready yet.

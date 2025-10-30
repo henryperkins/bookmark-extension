@@ -1,12 +1,12 @@
-import { cosineSimilarity } from "./lib/cosine.js";
-import { getPageText } from "./scraper.js";
-import { DuplicateDetector } from "./utils/duplicateDetector.js";
-import { makePairKey, normalizeUrlForKey } from "./utils/url.js";
+import { cosineSimilarity } from './lib/cosine.js';
+import { getPageText } from './scraper.js';
+import { DuplicateDetector } from './utils/duplicateDetector.js';
+import { makePairKey, normalizeUrlForKey } from './utils/url.js';
 
 export async function embedNode(node, openai, limiter, { allowScrape = true } = {}) {
-  let body = "";
+  let body = '';
   if (allowScrape && node.url) {
-    body = (await limiter.execute(() => getPageText(node.url))) || "";
+    body = (await limiter.execute(() => getPageText(node.url))) || '';
   }
 
   const parts = [];
@@ -14,7 +14,7 @@ export async function embedNode(node, openai, limiter, { allowScrape = true } = 
   if (body) parts.push(body);
   else if (node.url) parts.push(node.url);
 
-  const payload = parts.join("\n\n").trim();
+  const payload = parts.join('\n\n').trim();
   if (!payload) return new Float32Array(0);
 
   const { data } = await limiter.execute(() => openai.embed(payload));
@@ -51,7 +51,7 @@ export async function dedupeNodes(
     notifier?.showProgress(i + 1, total, `Processing ${i + 1}/${total}`);
 
     // Check for exact normalized URL match first (before computing embeddings)
-    const normalizedUrl = n.url ? normalizeUrlForKey(n.url) : "";
+    const normalizedUrl = n.url ? normalizeUrlForKey(n.url) : '';
     if (normalizedUrl && normalizedUrlMap.has(normalizedUrl)) {
       const matchIdx = normalizedUrlMap.get(normalizedUrl);
       const target = keep[matchIdx];
@@ -85,9 +85,9 @@ export async function dedupeNodes(
     }
 
     const target = keep[best.idx];
-    const ignoreKey = n.url && target?.url ? makePairKey(n.url, target.url) : "";
+    const ignoreKey = n.url && target?.url ? makePairKey(n.url, target.url) : '';
     const isIgnoredPair = ignoreKey && ignored.has(ignoreKey);
-    const isDupe = !isIgnoredPair && target && detector.isDuplicate(v, keepVectors[best.idx], n.url || "", target.url || "");
+    const isDupe = !isIgnoredPair && target && detector.isDuplicate(v, keepVectors[best.idx], n.url || '', target.url || '');
 
     if (isDupe) {
       dupes.push({

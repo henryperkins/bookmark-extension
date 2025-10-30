@@ -32,7 +32,7 @@ export class ExtensionTestHelper {
         '--disable-field-trial-config',
         '--disable-back-forward-cache',
         '--force-color-profile=srgb',
-        '--disable-features=IsolateOrigins,site-per-process',
+        '--disable-features=IsolateOrigins,site-per-process'
       ],
       ...options
     };

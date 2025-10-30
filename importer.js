@@ -1,11 +1,11 @@
-import { addBookmark } from "./bookmarksCrud.js";
-import { normalizeUrlForKey, isBrowserInternalUrl } from "./utils/url.js";
+import { addBookmark } from './bookmarksCrud.js';
+import { normalizeUrlForKey, isBrowserInternalUrl } from './utils/url.js';
 
 /**
  * Decode HTML entities in text content
  */
 function decodeHtmlEntities(value) {
-  if (!value) return "";
+  if (!value) return '';
   const entityMap = { amp: '&', lt: '<', gt: '>', quot: '"', apos: "'" };
   return value.replace(/&(#x?[0-9a-fA-F]+|[a-zA-Z]+);/g, (_, ent) => {
     if (ent in entityMap) return entityMap[ent];
@@ -160,19 +160,19 @@ function fallbackParseBookmarks(html) {
  * @returns {Array<{type: 'folder'|'bookmark', title?: string, url?: string, children?: any[]}>}
  */
 export function parseBookmarks(html) {
-  if (!html || typeof html !== "string") return [];
+  if (!html || typeof html !== 'string') return [];
 
   try {
-    if (typeof DOMParser !== "undefined") {
+    if (typeof DOMParser !== 'undefined') {
       return parseDomBookmarks(html);
     }
     return fallbackParseBookmarks(html);
   } catch (error) {
-    console.warn("parseBookmarks failed, falling back to regex parser:", error);
+    console.warn('parseBookmarks failed, falling back to regex parser:', error);
     try {
       return fallbackParseBookmarks(html);
     } catch (fallbackError) {
-      console.warn("Fallback parser also failed:", fallbackError);
+      console.warn('Fallback parser also failed:', fallbackError);
       return [];
     }
   }
@@ -252,7 +252,7 @@ export async function importHtml(html, parentId) {
           await addBookmark({
             parentId: currentParentId,
             title: item.title || url,
-            url: url
+            url
           });
         }
       } catch (error) {

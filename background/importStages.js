@@ -1,20 +1,20 @@
-import { parseBookmarks } from "../importer.js";
-import { addBookmark } from "../bookmarksCrud.js";
-import { createRateLimiter } from "../utils/rateLimiter.js";
-import { normalizeUrlForKey, isBrowserInternalUrl } from "../utils/url.js";
-import { createOpenAI } from "../openaiClient.js";
-import { tagNodes } from "../tagger.js";
-import { suggestFolders } from "../utils/folderOrganizer.js";
-import { writeTags } from "../writer.js";
-import { getPageText } from "../scraper.js";
+import { parseBookmarks } from '../importer.js';
+import { addBookmark } from '../bookmarksCrud.js';
+import { createRateLimiter } from '../utils/rateLimiter.js';
+import { normalizeUrlForKey, isBrowserInternalUrl } from '../utils/url.js';
+import { createOpenAI } from '../openaiClient.js';
+import { tagNodes } from '../tagger.js';
+import { suggestFolders } from '../utils/folderOrganizer.js';
+import { writeTags } from '../writer.js';
+import { getPageText } from '../scraper.js';
 
-const URL_INDEX_KEY = "urlIndex";
-const URL_INDEX_ID_KEY = "urlIndexById";
-export const IMPORT_PAYLOAD_PREFIX = "importPayload_";
-const IMPORT_STATE_PREFIX = "importState_";
-export const ENRICH_PAYLOAD_PREFIX = "enrichPayload_";
-export const JOB_META_PREFIX = "jobMeta_";
-const ROOT_REF = "__root__";
+const URL_INDEX_KEY = 'urlIndex';
+const URL_INDEX_ID_KEY = 'urlIndexById';
+export const IMPORT_PAYLOAD_PREFIX = 'importPayload_';
+const IMPORT_STATE_PREFIX = 'importState_';
+export const ENRICH_PAYLOAD_PREFIX = 'enrichPayload_';
+export const JOB_META_PREFIX = 'jobMeta_';
+const ROOT_REF = '__root__';
 
 let listenersWired = false;
 
@@ -53,7 +53,7 @@ async function waitForKey(key, timeoutMs = 8000, intervalMs = 50) {
 async function loadJobMeta(jobId) {
   const key = getJobMetaKey(jobId);
   const meta = await waitForKey(key, 8000, 50);
-  if (!meta || typeof meta !== "object") return null;
+  if (!meta || typeof meta !== 'object') return null;
   return meta;
 }
 
@@ -65,11 +65,11 @@ async function getUrlIndex(allowRetry = true) {
   let needsRebuild = false;
 
   const index = {};
-  if (rawIndex && typeof rawIndex === "object" && !Array.isArray(rawIndex)) {
+  if (rawIndex && typeof rawIndex === 'object' && !Array.isArray(rawIndex)) {
     for (const [key, value] of Object.entries(rawIndex)) {
       if (!value) continue;
       if (Array.isArray(value)) {
-        const filtered = value.filter((id) => typeof id === "string" && id);
+        const filtered = value.filter((id) => typeof id === 'string' && id);
         if (filtered.length) {
           index[key] = Array.from(new Set(filtered));
         } else {
@@ -80,19 +80,19 @@ async function getUrlIndex(allowRetry = true) {
         break;
       }
     }
-  } else if (rawIndex && typeof rawIndex !== "object") {
+  } else if (rawIndex && typeof rawIndex !== 'object') {
     needsRebuild = true;
   }
 
   const idIndex = {};
   if (!needsRebuild) {
-    if (rawIdIndex && typeof rawIdIndex === "object" && !Array.isArray(rawIdIndex)) {
+    if (rawIdIndex && typeof rawIdIndex === 'object' && !Array.isArray(rawIdIndex)) {
       for (const [id, normalized] of Object.entries(rawIdIndex)) {
-        if (typeof id === "string" && typeof normalized === "string" && normalized) {
+        if (typeof id === 'string' && typeof normalized === 'string' && normalized) {
           idIndex[id] = normalized;
         }
       }
-    } else if (rawIdIndex != null && typeof rawIdIndex !== "object") {
+    } else if (rawIdIndex != null && typeof rawIdIndex !== 'object') {
       needsRebuild = true;
     }
   }
@@ -117,7 +117,7 @@ async function setUrlIndex(index, idIndex) {
       [URL_INDEX_ID_KEY]: idIndex
     });
   } catch (error) {
-    console.warn("Failed to persist URL index:", error);
+    console.warn('Failed to persist URL index:', error);
   }
 }
 
@@ -177,15 +177,15 @@ function purgeNodeFromIndex(index, idIndex, node) {
 function collectOperations(tree, options) {
   const { parentRef = null, existingIndex, seenUrls } = options;
   const operations = [];
-  const stats = options.stats;
+  const {stats} = options;
 
   for (const node of tree) {
-    if (node.type === "folder") {
+    if (node.type === 'folder') {
       const opIndex = options.nextIndex.value++;
       operations.push({
         opIndex,
-        kind: "folder",
-        title: node.title || "Untitled Folder",
+        kind: 'folder',
+        title: node.title || 'Untitled Folder',
         parentRef
       });
 
@@ -197,9 +197,9 @@ function collectOperations(tree, options) {
         const childResult = collectOperations(node.children, childOptions);
         operations.push(...childResult.operations);
       }
-    } else if (node.type === "bookmark") {
+    } else if (node.type === 'bookmark') {
       stats.totalCandidates = (stats.totalCandidates || 0) + 1;
-      const url = (node.url || "").trim();
+      const url = (node.url || '').trim();
       if (!url) {
         stats.invalid = (stats.invalid || 0) + 1;
         continue;
@@ -223,7 +223,7 @@ function collectOperations(tree, options) {
       stats.valid = (stats.valid || 0) + 1;
       operations.push({
         opIndex: options.nextIndex.value++,
-        kind: "bookmark",
+        kind: 'bookmark',
         title: node.title || url,
         url,
         parentRef
@@ -270,7 +270,7 @@ export async function rebuildUrlIndex() {
     roots.forEach(walk);
     await setUrlIndex(index, idIndex);
   } catch (error) {
-    console.warn("Failed to rebuild URL index:", error);
+    console.warn('Failed to rebuild URL index:', error);
   }
 }
 
@@ -326,7 +326,7 @@ export function wireUrlIndexListeners() {
   });
 
   chrome.bookmarks.onChanged.addListener(async (id, changeInfo) => {
-    if (typeof changeInfo?.url !== "string") {
+    if (typeof changeInfo?.url !== 'string') {
       return;
     }
 
@@ -374,7 +374,7 @@ export function wireUrlIndexListeners() {
 }
 
 function ensureImportStateDefaults(state, parentId) {
-  if (!state || typeof state !== "object") {
+  if (!state || typeof state !== 'object') {
     return {
       parentId,
       operations: [],
@@ -408,17 +408,17 @@ function ensureImportStateDefaults(state, parentId) {
 
 async function runImportInitializing(ctx) {
   const meta = await loadJobMeta(ctx.jobId);
-  if (!meta || meta.type !== "import") {
+  if (!meta || meta.type !== 'import') {
     return { completed: true };
   }
 
   const payloadKey = getImportPayloadKey(ctx.jobId);
   const payload = await waitForKey(payloadKey, 8000, 50);
   if (!payload) {
-    throw new Error("Import payload missing");
+    throw new Error('Import payload missing');
   }
 
-  const parentId = payload.parentId || "1";
+  const parentId = payload.parentId || '1';
   const state = ensureImportStateDefaults(await loadImportState(ctx.jobId), parentId);
   await saveImportState(ctx.jobId, state);
 
@@ -435,22 +435,22 @@ async function runImportInitializing(ctx) {
 
 async function runImportScanning(ctx) {
   const meta = await loadJobMeta(ctx.jobId);
-  if (!meta || meta.type !== "import") {
+  if (!meta || meta.type !== 'import') {
     return { completed: true };
   }
 
   const payloadKey = getImportPayloadKey(ctx.jobId);
   const payload = await waitForKey(payloadKey, 8000, 50);
   if (!payload) {
-    throw new Error("Import payload missing");
+    throw new Error('Import payload missing');
   }
 
-  const html = payload.html || "";
+  const html = payload.html || '';
   const parsed = parseBookmarks(html);
   const { index: existingIndex } = await getUrlIndex();
   const seen = new Set();
 
-  const state = ensureImportStateDefaults(await loadImportState(ctx.jobId), payload.parentId || "1");
+  const state = ensureImportStateDefaults(await loadImportState(ctx.jobId), payload.parentId || '1');
   state.operations = [];
   state.cursor = 0;
   state.stats = {
@@ -489,7 +489,7 @@ async function runImportScanning(ctx) {
 
 async function runImportGrouping(ctx) {
   const meta = await loadJobMeta(ctx.jobId);
-  if (!meta || meta.type !== "import") {
+  if (!meta || meta.type !== 'import') {
     return { completed: true };
   }
 
@@ -500,11 +500,11 @@ async function runImportGrouping(ctx) {
 
 async function runImportResolving(ctx) {
   const meta = await loadJobMeta(ctx.jobId);
-  if (!meta || meta.type !== "import") {
+  if (!meta || meta.type !== 'import') {
     return { completed: true };
   }
 
-  const state = ensureImportStateDefaults(await loadImportState(ctx.jobId), meta.parentId || "1");
+  const state = ensureImportStateDefaults(await loadImportState(ctx.jobId), meta.parentId || '1');
   if (!Array.isArray(state.operations) || state.operations.length === 0) {
     ctx.progressCallback(0, 1);
     return { completed: true };
@@ -512,7 +512,7 @@ async function runImportResolving(ctx) {
 
   const total = state.operations.length;
   const limiter = createRateLimiter(8);
-  let { index, idIndex } = await getUrlIndex();
+  const { index, idIndex } = await getUrlIndex();
   const BATCH_SIZE = 300;
 
   while (state.cursor < total) {
@@ -521,21 +521,21 @@ async function runImportResolving(ctx) {
     for (let i = state.cursor; i < batchEnd; i++) {
       const op = state.operations[i];
       const parentKey = op.parentRef == null ? ROOT_REF : String(op.parentRef);
-      const parentId = state.folderMap[parentKey] || state.folderMap[ROOT_REF] || meta.parentId || "1";
+      const parentId = state.folderMap[parentKey] || state.folderMap[ROOT_REF] || meta.parentId || '1';
 
       try {
-        if (op.kind === "folder") {
+        if (op.kind === 'folder') {
           const created = await limiter.execute(() =>
             addBookmark({
               parentId,
-              title: op.title || "Untitled Folder"
+              title: op.title || 'Untitled Folder'
             })
           );
           if (created?.id) {
             state.folderMap[String(op.opIndex)] = created.id;
             state.stats.createdFolders = (state.stats.createdFolders || 0) + 1;
           }
-        } else if (op.kind === "bookmark") {
+        } else if (op.kind === 'bookmark') {
           const created = await limiter.execute(() =>
             addBookmark({
               parentId,
@@ -560,7 +560,7 @@ async function runImportResolving(ctx) {
           state.stats.createdBookmarks = (state.stats.createdBookmarks || 0) + 1;
         }
       } catch (error) {
-        console.warn("Failed to execute import operation:", op, error);
+        console.warn('Failed to execute import operation:', op, error);
         state.stats.failed = (state.stats.failed || 0) + 1;
       }
     }
@@ -581,7 +581,7 @@ async function runImportResolving(ctx) {
 
 async function runImportVerifying(ctx) {
   const meta = await loadJobMeta(ctx.jobId);
-  if (!meta || meta.type !== "import") {
+  if (!meta || meta.type !== 'import') {
     return { completed: true };
   }
   ctx.progressCallback(1, 1);
@@ -590,7 +590,7 @@ async function runImportVerifying(ctx) {
 
 async function runImportSummarizing(ctx) {
   const meta = await loadJobMeta(ctx.jobId);
-  if (!meta || meta.type !== "import") {
+  if (!meta || meta.type !== 'import') {
     return { completed: true };
   }
 
@@ -615,7 +615,7 @@ async function runImportSummarizing(ctx) {
 
 async function runEnrichInitializing(ctx) {
   const meta = await loadJobMeta(ctx.jobId);
-  if (!meta || meta.type !== "enrich-one") {
+  if (!meta || meta.type !== 'enrich-one') {
     return { completed: true };
   }
   ctx.progressCallback(0, 1);
@@ -624,7 +624,7 @@ async function runEnrichInitializing(ctx) {
 
 async function runEnrichScanning(ctx) {
   const meta = await loadJobMeta(ctx.jobId);
-  if (!meta || meta.type !== "enrich-one") {
+  if (!meta || meta.type !== 'enrich-one') {
     return { completed: true };
   }
   ctx.progressCallback(1, 1);
@@ -633,7 +633,7 @@ async function runEnrichScanning(ctx) {
 
 async function runEnrichGrouping(ctx) {
   const meta = await loadJobMeta(ctx.jobId);
-  if (!meta || meta.type !== "enrich-one") {
+  if (!meta || meta.type !== 'enrich-one') {
     return { completed: true };
   }
   ctx.progressCallback(1, 1);
@@ -642,28 +642,28 @@ async function runEnrichGrouping(ctx) {
 
 async function loadEnrichmentConfig() {
   const cfg = await chrome.storage.sync.get([
-    "apiKey",
-    "baseUrl",
-    "deployment",
-    "embeddingDeployment",
-    "apiVersion",
-    "deviceOnly",
-    "enableScraping",
-    "previewMode"
+    'apiKey',
+    'baseUrl',
+    'deployment',
+    'embeddingDeployment',
+    'apiVersion',
+    'deviceOnly',
+    'enableScraping',
+    'previewMode'
   ]);
   return cfg;
 }
 
 async function runEnrichResolving(ctx) {
   const meta = await loadJobMeta(ctx.jobId);
-  if (!meta || meta.type !== "enrich-one") {
+  if (!meta || meta.type !== 'enrich-one') {
     return { completed: true };
   }
 
   const payloadKey = getEnrichPayloadKey(ctx.jobId);
   const payload = await waitForKey(payloadKey, 8000, 50);
   if (!payload?.id) {
-    throw new Error("Enrichment payload missing bookmark id");
+    throw new Error('Enrichment payload missing bookmark id');
   }
 
   const [node] = await chrome.bookmarks.get(payload.id);
@@ -677,14 +677,14 @@ async function runEnrichResolving(ctx) {
     try {
       openai = createOpenAI(cfg);
     } catch (error) {
-      console.warn("Failed to instantiate OpenAI client:", error);
+      console.warn('Failed to instantiate OpenAI client:', error);
     }
   }
 
   let enriched = null;
   if (openai) {
     try {
-      const content = cfg.enableScraping === false ? "" : await getPageText(node.url);
+      const content = cfg.enableScraping === false ? '' : await getPageText(node.url);
       const tagged = await tagNodes([{ id: node.id, title: node.title, url: node.url, content }], openai, {
         onProgress: (processed) => {
           ctx.progressCallback(Math.min(processed, 1), 1);
@@ -696,11 +696,11 @@ async function runEnrichResolving(ctx) {
         try {
           enriched.suggestedFolder = await suggestFolders(enriched, openai);
         } catch (folderError) {
-          console.warn("Folder suggestion failed:", folderError);
+          console.warn('Folder suggestion failed:', folderError);
         }
       }
     } catch (error) {
-      console.warn("Enrichment failed:", error);
+      console.warn('Enrichment failed:', error);
     }
   }
 
@@ -709,8 +709,8 @@ async function runEnrichResolving(ctx) {
       [`bookmarkEnhancement_${node.id}`]: {
         id: node.id,
         tags: enriched.tags || [],
-        category: enriched.category || "",
-        suggestedFolder: enriched.suggestedFolder || "",
+        category: enriched.category || '',
+        suggestedFolder: enriched.suggestedFolder || '',
         enrichedAt: Date.now()
       }
     });
@@ -730,7 +730,7 @@ async function runEnrichResolving(ctx) {
 
 async function runEnrichVerifying(ctx) {
   const meta = await loadJobMeta(ctx.jobId);
-  if (!meta || meta.type !== "enrich-one") {
+  if (!meta || meta.type !== 'enrich-one') {
     return { completed: true };
   }
   ctx.progressCallback(1, 1);
@@ -739,7 +739,7 @@ async function runEnrichVerifying(ctx) {
 
 async function runEnrichSummarizing(ctx) {
   const meta = await loadJobMeta(ctx.jobId);
-  if (!meta || meta.type !== "enrich-one") {
+  if (!meta || meta.type !== 'enrich-one') {
     return { completed: true };
   }
 
@@ -763,29 +763,29 @@ function buildStageExecutor(stage) {
       const type = meta?.type;
 
       switch (stage) {
-        case "initializing":
-          if (type === "import") return runImportInitializing(ctx);
-          if (type === "enrich-one") return runEnrichInitializing(ctx);
+        case 'initializing':
+          if (type === 'import') return runImportInitializing(ctx);
+          if (type === 'enrich-one') return runEnrichInitializing(ctx);
           return { completed: true };
-        case "scanning":
-          if (type === "import") return runImportScanning(ctx);
-          if (type === "enrich-one") return runEnrichScanning(ctx);
+        case 'scanning':
+          if (type === 'import') return runImportScanning(ctx);
+          if (type === 'enrich-one') return runEnrichScanning(ctx);
           return { completed: true };
-        case "grouping":
-          if (type === "import") return runImportGrouping(ctx);
-          if (type === "enrich-one") return runEnrichGrouping(ctx);
+        case 'grouping':
+          if (type === 'import') return runImportGrouping(ctx);
+          if (type === 'enrich-one') return runEnrichGrouping(ctx);
           return { completed: true };
-        case "resolving":
-          if (type === "import") return runImportResolving(ctx);
-          if (type === "enrich-one") return runEnrichResolving(ctx);
+        case 'resolving':
+          if (type === 'import') return runImportResolving(ctx);
+          if (type === 'enrich-one') return runEnrichResolving(ctx);
           return { completed: true };
-        case "verifying":
-          if (type === "import") return runImportVerifying(ctx);
-          if (type === "enrich-one") return runEnrichVerifying(ctx);
+        case 'verifying':
+          if (type === 'import') return runImportVerifying(ctx);
+          if (type === 'enrich-one') return runEnrichVerifying(ctx);
           return { completed: true };
-        case "summarizing":
-          if (type === "import") return runImportSummarizing(ctx);
-          if (type === "enrich-one") return runEnrichSummarizing(ctx);
+        case 'summarizing':
+          if (type === 'import') return runImportSummarizing(ctx);
+          if (type === 'enrich-one') return runEnrichSummarizing(ctx);
           return { completed: true };
         default:
           return { completed: true };
@@ -795,7 +795,7 @@ function buildStageExecutor(stage) {
 }
 
 export function registerImportJobStages(jobSystem) {
-  const stages = ["initializing", "scanning", "grouping", "resolving", "verifying", "summarizing"];
+  const stages = ['initializing', 'scanning', 'grouping', 'resolving', 'verifying', 'summarizing'];
   for (const stage of stages) {
     jobSystem.registerStageExecutor(stage, buildStageExecutor(stage));
   }

@@ -1,7 +1,7 @@
 const form = document.getElementById('cfg');
 const runNow = document.getElementById('runNow');
 const testConnectionBtn = document.getElementById('testConnection');
-const testResult = document.getElementById('testResult');
+let testResult = document.getElementById('testResult');
 const scrapingNotice = document.getElementById('scrapingNotice');
 const ALL_URLS_PERMISSION = { origins: ['<all_urls>'] };
 
@@ -84,14 +84,34 @@ async function handleScrapingToggleChange() {
   }
 }
 
+function ensureTestResultElement() {
+  if (testResult) {
+    return testResult;
+  }
+  if (!form) {
+    return null;
+  }
+  const el = document.createElement('div');
+  el.id = 'testResult';
+  el.style.display = 'none';
+  el.setAttribute('role', 'status');
+  el.setAttribute('aria-live', 'polite');
+  form.appendChild(el);
+  testResult = el;
+  return testResult;
+}
+
 function setTestResult(message, status) {
-  testResult.style.display = 'block';
-  testResult.textContent = message;
-  testResult.className = '';
+  const resultEl = ensureTestResultElement();
+  if (!resultEl) return;
+
+  resultEl.style.display = 'block';
+  resultEl.textContent = message;
+  resultEl.className = '';
   if (status === 'success') {
-    testResult.classList.add('success');
+    resultEl.classList.add('success');
   } else if (status === 'error') {
-    testResult.classList.add('error');
+    resultEl.classList.add('error');
   }
 }
 
@@ -177,30 +197,31 @@ async function testConnection() {
   }
 
   testConnectionBtn.disabled = true;
+  const originalLabel = testConnectionBtn.textContent;
   testConnectionBtn.textContent = 'Testing...';
   setTestResult('Testing connection to Azure OpenAI…', null);
 
-  chrome.runtime.sendMessage(
-    {
+  try {
+    const response = await chrome.runtime.sendMessage({
       type: 'TEST_CONNECTION',
       config: { apiKey, baseUrl, deployment, embeddingDeployment, apiVersion }
-    },
-    response => {
-      testConnectionBtn.disabled = false;
-      testConnectionBtn.textContent = 'Test Connection';
-      
-      if (recordLastError('Connection test', false)) {
-        setTestResult('Failed to communicate with service worker.', 'error');
-        return;
-      }
-      
-      if (response?.success) {
-        setTestResult(`Connection successful! Model "${deployment}" responded.`, 'success');
-      } else {
-        setTestResult(response?.error || 'Connection test failed.', 'error');
-      }
+    });
+
+    if (response?.success) {
+      setTestResult(`Connection successful! Model "${deployment}" responded.`, 'success');
+    } else if (response?.error) {
+      setTestResult(response.error, 'error');
+    } else {
+      setTestResult('Connection test failed. No response from service worker.', 'error');
     }
-  );
+  } catch (error) {
+    console.error('Connection test crashed:', error);
+    const message = error?.message || 'Connection test failed due to an unexpected error.';
+    setTestResult(message, 'error');
+  } finally {
+    testConnectionBtn.disabled = false;
+    testConnectionBtn.textContent = originalLabel || 'Test Connection';
+  }
 }
 
 form.scraping.addEventListener('change', handleScrapingToggleChange);

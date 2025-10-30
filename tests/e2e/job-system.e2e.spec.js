@@ -117,7 +117,7 @@ test.describe('Job System Integration', () => {
 
     // Mock an active job
     await page.addInitScript(() => {
-      let mockJob = {
+      const mockJob = {
         jobId: 'test-job-456',
         status: 'running',
         stage: 'scanning',

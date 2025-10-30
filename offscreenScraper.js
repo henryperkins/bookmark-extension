@@ -1,4 +1,4 @@
-import { isLocalNetworkUrl } from "./utils/url.js";
+import { isLocalNetworkUrl } from './utils/url.js';
 
 chrome.runtime.onMessage.addListener(async (msg, _sender, reply) => {
   if (msg?.target !== 'offscreen' || msg?.type !== 'SCRAPE') return;
@@ -63,5 +63,5 @@ function extractMeaningfulText(doc) {
   // Fallback to meta description + first paragraph
   const meta = doc.querySelector('meta[name="description"]')?.content || '';
   const firstP = doc.querySelector('p')?.textContent || '';
-  return (meta + '\n\n' + firstP).trim().slice(0, 4000);
+  return (`${meta}\n\n${firstP}`).trim().slice(0, 4000);
 }

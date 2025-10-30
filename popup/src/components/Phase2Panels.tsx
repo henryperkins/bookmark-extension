@@ -146,7 +146,7 @@ export function StageList() {
                       height: '100%',
                       width: isActive
                         ? showNumeric
-                          ? `${Math.max(0, Math.min(100, Math.round((processed / Math.max(1, total as number)) * 100)))}%`
+                          ? `${Math.max(0, Math.min(100, Math.round((processed / Math.max(1, total)) * 100)))}%`
                           : '100%'
                         : status === 'completed'
                           ? '100%'

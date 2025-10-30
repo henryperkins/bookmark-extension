@@ -7,9 +7,9 @@ function walk(nodes, depth = 0) {
   let html = '';
   for (const n of nodes) {
     if (n.url) {
-      html += `${pad}<DT><A HREF="${escapeHTML(n.url)}" ADD_DATE="${Math.floor(Date.now()/1000)}">${escapeHTML(n.title || n.url)}</A>\n`;
+      html += `${pad}<DT><A HREF="${escapeHTML(n.url)}" ADD_DATE="${Math.floor(Date.now() / 1000)}">${escapeHTML(n.title || n.url)}</A>\n`;
     } else {
-      html += `${pad}<DT><H3 ADD_DATE="${Math.floor(Date.now()/1000)}">${escapeHTML(n.title || 'Folder')}</H3>\n`;
+      html += `${pad}<DT><H3 ADD_DATE="${Math.floor(Date.now() / 1000)}">${escapeHTML(n.title || 'Folder')}</H3>\n`;
       html += `${pad}<DL><p>\n`;
       html += walk(n.children || [], depth + 1);
       html += `${pad}</DL><p>\n`;
@@ -18,7 +18,7 @@ function walk(nodes, depth = 0) {
   return html;
 }
 
-export async function exportBookmarks(rootTitle = "Bookmarks") {
+export async function exportBookmarks(rootTitle = 'Bookmarks') {
   const tree = await chrome.bookmarks.getTree();
   const body = walk(tree);
   const html = `<!DOCTYPE NETSCAPE-Bookmark-file-1>
@@ -29,7 +29,7 @@ export async function exportBookmarks(rootTitle = "Bookmarks") {
 <DL><p>
 ${body}</DL><p>
 `;
-  const blob = new Blob([html], { type: "text/html" });
+  const blob = new Blob([html], { type: 'text/html' });
   const url = URL.createObjectURL(blob);
   await chrome.downloads.download({
     url,

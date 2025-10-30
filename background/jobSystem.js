@@ -106,7 +106,7 @@ export class JobSystemImpl {
     if (!this.initialized) return;
 
     console.log('Disposing job system...');
-    
+
     this.runner.dispose();
     this.bus.dispose();
     if (this.runnerUnsubscribe) {
@@ -117,7 +117,7 @@ export class JobSystemImpl {
       chrome.runtime.onMessage.removeListener(this.messageListener);
       this.messageListener = null;
     }
-    
+
     this.initialized = false;
     console.log('Job system disposed');
   }
@@ -219,7 +219,7 @@ export async function initializeJobSystem(options = {}) {
 
   globalJobSystem = new JobSystemImpl(options);
   await globalJobSystem.initialize();
-  
+
   return globalJobSystem;
 }
 
@@ -460,7 +460,7 @@ function generateCsvReport(snapshot, activity, redactUrls) {
     `"${a.message.replace(/"/g, '""')}"`,
     a.stage || ''
   ]);
-  
+
   // Redact URLs from messages if requested
   if (redactUrls) {
     rows = rows.map(row => [
@@ -478,12 +478,12 @@ function generateTextReport(snapshot, activity, redactUrls) {
   const jobId = redactUrls ? redactUrlsFromText(snapshot.jobId) : snapshot.jobId;
   const status = redactUrls ? redactUrlsFromText(snapshot.status) : snapshot.status;
   const stage = redactUrls ? redactUrlsFromText(snapshot.stage) : snapshot.stage;
-  const createdAt = snapshot.createdAt;
+  const {createdAt} = snapshot;
   const startedAt = snapshot.startedAt || 'N/A';
   const completedAt = snapshot.completedAt || 'N/A';
-  
+
   const summary = redactUrls ? redactUrlsFromData(snapshot.summary) : snapshot.summary;
-  
+
   const lines = [
     `Job Report: ${jobId}`,
     `Status: ${status}`,

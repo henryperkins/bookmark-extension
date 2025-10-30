@@ -1,4 +1,4 @@
-import { cosineSimilarity } from "../lib/cosine.js";
+import { cosineSimilarity } from '../lib/cosine.js';
 
 export class DuplicateDetector {
   constructor(threshold = 0.9) {

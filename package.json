@@ -3,6 +3,15 @@
   "private": true,
   "type": "module",
   "scripts": {
-    "test": "node --test tests/**/*.spec.mjs"
+    "test": "node --test tests/**/*.spec.mjs",
+    "lint": "eslint . --ext .js,.mjs,.ts,.tsx",
+    "lint:fix": "eslint . --ext .js,.mjs,.ts,.tsx --fix",
+    "lint:legacy": "eslint . --ext .js,.mjs,.ts,.tsx --config .eslintrc.legacy.js"
+  },
+  "devDependencies": {
+    "@eslint/js": "^9.38.0",
+    "@typescript-eslint/eslint-plugin": "^8.46.2",
+    "@typescript-eslint/parser": "^8.46.2",
+    "eslint": "^9.38.0"
   }
 }

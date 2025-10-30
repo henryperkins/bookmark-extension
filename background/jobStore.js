@@ -36,7 +36,7 @@ export class JobStore {
     try {
       const result = await chrome.storage.local.get(this.KEYS.SNAPSHOT);
       const snapshotData = result[this.KEYS.SNAPSHOT];
-      
+
       if (!snapshotData) {
         return null;
       }
@@ -91,16 +91,16 @@ export class JobStore {
       // Load existing activity log
       const result = await chrome.storage.local.get(this.KEYS.ACTIVITY);
       const activities = result[this.KEYS.ACTIVITY] || [];
-      
+
       // Add new entry
       activities.push(entry);
-      
+
       // Trim if too long
       const maxActivityEntries = Number.isFinite(this.options.maxActivityEntries) ? this.options.maxActivityEntries : DEFAULT_STORE_OPTIONS.maxActivityEntries;
       if (activities.length > maxActivityEntries) {
         activities.splice(0, activities.length - maxActivityEntries);
       }
-      
+
       // Save trimmed log
       await this.performSave(this.KEYS.ACTIVITY, activities);
 
@@ -123,21 +123,21 @@ export class JobStore {
     try {
       const result = await chrome.storage.local.get(this.KEYS.ACTIVITY);
       const activities = result[this.KEYS.ACTIVITY] || [];
-      
+
       // Validate entries
       const validActivities = activities.filter(entry => this.isValidActivity(entry));
-      
+
       if (validActivities.length !== activities.length) {
         console.warn(`Filtered ${activities.length - validActivities.length} invalid activity entries`);
         // Clean up invalid entries
         await this.performSave(this.KEYS.ACTIVITY, validActivities);
       }
-      
+
       // Apply limit if specified
       if (limit && limit > 0) {
         return validActivities.slice(-limit);
       }
-      
+
       return validActivities;
     } catch (error) {
       console.error('Failed to load activity log:', error);
@@ -160,7 +160,7 @@ export class JobStore {
       const result = await chrome.storage.local.get(this.KEYS.ACTIVITY);
       const activities = result[this.KEYS.ACTIVITY] || [];
       const filteredActivities = activities.filter(entry => entry.jobId !== jobId);
-      
+
       if (filteredActivities.length !== activities.length) {
         await this.performSave(this.KEYS.ACTIVITY, filteredActivities);
       }
@@ -191,14 +191,14 @@ export class JobStore {
     try {
       const result = await chrome.storage.local.get(this.KEYS.QUEUE);
       const queueData = result[this.KEYS.QUEUE];
-      
+
       if (queueData && this.isValidQueue(queueData)) {
         return queueData;
       }
     } catch (error) {
       console.error('Failed to load queue data:', error);
     }
-    
+
     return null;
   }
 
@@ -373,7 +373,7 @@ export class JobStore {
       const result = await chrome.storage.local.get(this.KEYS.HISTORY);
       const history = result[this.KEYS.HISTORY] || [];
       const filteredHistory = history.filter(entry => entry.jobId !== jobId);
-      
+
       if (filteredHistory.length !== history.length) {
         await this.performSave(this.KEYS.HISTORY, filteredHistory);
       }
@@ -429,20 +429,20 @@ export class JobStore {
     try {
       const result = await chrome.storage.local.get(this.KEYS.HISTORY);
       const history = result[this.KEYS.HISTORY] || [];
-      
+
       // Add new entry with the full job snapshot
       const historyEntry = {
         ...jobSnapshot,
         historyTimestamp: Date.now() // Keep track of when it was added to history
       };
       history.push(historyEntry);
-      
+
       // Trim to max history size
       const maxHistory = Number.isFinite(this.options.maxQueueHistory) ? this.options.maxQueueHistory : DEFAULT_STORE_OPTIONS.maxQueueHistory;
       if (history.length > maxHistory) {
         history.splice(0, history.length - maxHistory);
       }
-      
+
       await this.performSave(this.KEYS.HISTORY, history);
     } catch (error) {
       console.error('Failed to add job to history:', error);
@@ -502,7 +502,7 @@ export class JobStore {
       // Check for legacy data
       const legacyKeys = ['dedupeJob', 'cleanupJob', 'jobState'];
       const legacyData = {};
-      
+
       for (const key of legacyKeys) {
         const result = await chrome.storage.local.get(key);
         if (result[key]) {
@@ -529,22 +529,22 @@ export class JobStore {
 
       // Clean up legacy data
       await chrome.storage.local.remove(legacyKeys);
-      
+
       // Mark migration as completed
-      await chrome.storage.local.set({ 
-        [this.KEYS.MIGRATION]: { 
-          migrated: true, 
+      await chrome.storage.local.set({
+        [this.KEYS.MIGRATION]: {
+          migrated: true,
           timestamp: Date.now(),
-          migratedKeys: legacyKeys 
-        } 
+          migratedKeys: legacyKeys
+        }
       });
 
       return { migrated: true };
     } catch (error) {
       console.error('Migration failed:', error);
-      return { 
-        migrated: false, 
-        error: error instanceof Error ? error.message : 'Unknown migration error' 
+      return {
+        migrated: false,
+        error: error instanceof Error ? error.message : 'Unknown migration error'
       };
     }
   }
@@ -561,7 +561,7 @@ export class JobStore {
         this.KEYS.HISTORY,
         this.KEYS.MIGRATION
       ]);
-      
+
       // Clear in-memory state
       this.lastSave.clear();
       this.saveQueue.forEach(timeout => clearTimeout(timeout));

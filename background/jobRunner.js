@@ -234,13 +234,13 @@ export class JobRunner {
     this.publishJobStatus();
     this.addActivity('info', 'Job paused by user');
   }
-  
+
   /**
    * Update job properties and notify subscribers
    */
   updateJob(props) {
     if (!this.currentJob) return;
-    
+
     this.currentJob = { ...this.currentJob, ...props };
     this.debouncedSave();
     this.publishJobStatus();
@@ -336,7 +336,7 @@ export class JobRunner {
   async executeCurrentStage() {
     if (!this.currentJob) return;
 
-    const stage = this.currentJob.stage;
+    const {stage} = this.currentJob;
     const executor = this.stageExecutors.get(stage);
     const stageMeta = STAGE_CONFIGS[stage] || { displayName: stage, retryable: true };
 
@@ -389,8 +389,8 @@ export class JobRunner {
       }
 
     } catch (error) {
-      this.addActivity('error', `Error in ${stageMeta.displayName} stage`, { 
-        error: error instanceof Error ? error.message : 'Unknown error' 
+      this.addActivity('error', `Error in ${stageMeta.displayName} stage`, {
+        error: error instanceof Error ? error.message : 'Unknown error'
       });
       await this.handleStageError(stage, error);
     }
@@ -429,7 +429,7 @@ export class JobRunner {
       await this.jobStore.saveSnapshot(this.currentJob);
       this.publishJobStatus();
 
-      this.addActivity('error', `${stageConfig.displayName} stage failed permanently`, { 
+      this.addActivity('error', `${stageConfig.displayName} stage failed permanently`, {
         error: message,
         retries: currentRetries
       });
@@ -535,7 +535,7 @@ export class JobRunner {
     }
 
     await this.jobStore.saveSnapshot(this.currentJob);
-    
+
     // If job is completed or cancelled, add it to history and clear the snapshot
     if (status === 'completed' || status === 'cancelled') {
       await this.jobStore.addToHistory(this.currentJob);
@@ -680,7 +680,7 @@ export class JobRunner {
     const snapshot = await this.jobStore.loadSnapshot();
     if (snapshot) {
       this.currentJob = snapshot;
-      
+
       // If job was running when service worker shut down, mark as paused
       if (snapshot.status === 'running') {
         snapshot.status = 'paused';

@@ -6,15 +6,15 @@ test('connection test job completes successfully', async () => {
   global.chrome = {
     runtime: {
       onMessage: { addListener: () => {}, removeListener: () => {} },
-      onConnect: { addListener: () => {}, removeListener: () => {} },
+      onConnect: { addListener: () => {}, removeListener: () => {} }
     },
     storage: {
       local: {
         get: async () => ({}),
         set: async () => {},
-        remove: async () => {},
-      },
-    },
+        remove: async () => {}
+      }
+    }
   };
 
   const { JobRunner } = await import('../background/jobRunner.js');
@@ -35,7 +35,7 @@ test('connection test job completes successfully', async () => {
     prepare: async () => {},
     teardown: async () => {},
     canPause: () => false,
-    canCancel: () => true,
+    canCancel: () => true
   };
 
   jobRunner.registerStageExecutor('initializing', mockExecutor);
